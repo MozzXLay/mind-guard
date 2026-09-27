@@ -30,7 +30,7 @@ const MAX_BACKUP_BYTES: u64 = 128 * 1024 * 1024;
 
 mod daily;
 mod zone;
-pub use daily::{BehaviorEvent, EventInput, Goal, PlanAction, TodaySnapshot};
+pub use daily::{BehaviorEvent, EventInput, Goal, PlanAction, SosInput, SosSession, TodaySnapshot};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

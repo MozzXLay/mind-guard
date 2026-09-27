@@ -43,6 +43,22 @@ pub struct Goal { pub id: String, pub title: String, pub kind: String, pub statu
 #[serde(rename_all = "camelCase")]
 pub struct PlanAction { pub id: String, pub goal_id: String, pub title: String, pub enabled: bool, pub goal_status: String, pub completed: bool }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SosInput {
+    pub started_at_utc_ms: i64,
+    pub ended_at_utc_ms: i64,
+    pub zone_id: String,
+    pub initial_intensity: Option<i64>,
+    pub final_intensity: Option<i64>,
+    pub outcome: String,
+    pub action: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SosSession { pub id: String, pub started_at_utc_ms: i64, pub ended_at_utc_ms: i64, pub local_date: String, pub initial_intensity: Option<i64>, pub final_intensity: Option<i64>, pub outcome: String, pub action: Option<String> }
+
 fn now_ms() -> VaultResult<i64> { Ok((now_secs()? as i64) * 1000) }
 fn valid_type(t: &str) -> bool { matches!(t, "urge" | "viewed_content" | "stopped_viewing" | "masturbation" | "alternative_action") }
 fn valid_trigger(t: &str) -> bool { matches!(t, "boredom" | "stress" | "loneliness" | "anxiety" | "fatigue" | "sleep_loss" | "desire" | "habit" | "other") }
@@ -71,6 +87,34 @@ fn get_event(db: &Connection, id: &str) -> VaultResult<BehaviorEvent> {
 }
 
 impl VaultService {
+    pub fn save_sos(&mut self, input: SosInput) -> VaultResult<SosSession> {
+        if input.started_at_utc_ms < 0 || input.ended_at_utc_ms < input.started_at_utc_ms || input.ended_at_utc_ms > now_ms()? + 86_400_000
+            || input.ended_at_utc_ms - input.started_at_utc_ms > 3_600_000
+            || input.initial_intensity.is_some_and(|n| !(0..=10).contains(&n))
+            || input.final_intensity.is_some_and(|n| !(0..=10).contains(&n))
+            || !matches!(input.outcome.as_str(), "completed" | "skipped" | "interrupted")
+            || input.action.as_ref().is_some_and(|s| s.chars().count() > 100)
+        { return Err(VaultError::invalid()); }
+        let (date, _) = zone::local_parts(input.started_at_utc_ms, &input.zone_id)?;
+        let key = self.require_key()?;
+        let mut db = open_db(&self.db_path(), &key, false)?;
+        let tx = db.transaction().map_err(|_| VaultError::io())?;
+        let session = SosSession { id: random_uuid()?, started_at_utc_ms: input.started_at_utc_ms, ended_at_utc_ms: input.ended_at_utc_ms, local_date: date, initial_intensity: input.initial_intensity, final_intensity: input.final_intensity, outcome: input.outcome, action: input.action };
+        tx.execute("INSERT INTO urge_session (id,started_at_utc_ms,ended_at_utc_ms,local_date,initial_intensity,final_intensity,outcome,action) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)", params![session.id,session.started_at_utc_ms,session.ended_at_utc_ms,session.local_date,session.initial_intensity,session.final_intensity,session.outcome,session.action]).map_err(|_| VaultError::io())?;
+        tx.commit().map_err(|_| VaultError::io())?;
+        Ok(session)
+    }
+
+    pub fn list_sos(&mut self, limit: u32) -> VaultResult<Vec<SosSession>> {
+        if limit == 0 || limit > 100 { return Err(VaultError::invalid()); }
+        let key = self.require_key()?;
+        let db = open_db(&self.db_path(), &key, false)?;
+        let mut stmt = db.prepare("SELECT id,started_at_utc_ms,ended_at_utc_ms,local_date,initial_intensity,final_intensity,outcome,action FROM urge_session ORDER BY started_at_utc_ms DESC,id DESC LIMIT ?1").map_err(|_| VaultError::io())?;
+        let result = stmt.query_map([limit], |r| Ok(SosSession { id:r.get(0)?,started_at_utc_ms:r.get(1)?,ended_at_utc_ms:r.get(2)?,local_date:r.get(3)?,initial_intensity:r.get(4)?,final_intensity:r.get(5)?,outcome:r.get(6)?,action:r.get(7)? }))
+            .map_err(|_| VaultError::io())?.collect::<Result<Vec<_>,_>>().map_err(|_| VaultError::io())?;
+        Ok(result)
+    }
+
     pub fn goal_details(&mut self) -> VaultResult<Vec<Goal>> {
         let key = self.require_key()?;
         let db = open_db(&self.db_path(), &key, false)?;
@@ -245,5 +289,17 @@ mod tests {
         assert!(!vault.list_actions("2026-09-27").unwrap()[0].completed);
         vault.save_goal(Some(goal.id), "renamed".into(), "paused".into()).unwrap();
         assert!(vault.set_action_completion(&action.id, "2026-09-27", true).is_err());
+    }
+
+    #[test]
+    fn saved_sos_allows_missing_scores_and_rejects_invalid_outcome() {
+        let root = tempfile::tempdir().unwrap();
+        let mut vault = VaultService::new(root.path().join("vault"));
+        vault.initialize("a long unique test password 2026", &[]).unwrap();
+        let now = now_ms().unwrap();
+        let session = vault.save_sos(SosInput { started_at_utc_ms: now - 30_000, ended_at_utc_ms: now, zone_id: "Asia/Shanghai".into(), initial_intensity: None, final_intensity: None, outcome: "skipped".into(), action: None }).unwrap();
+        assert_eq!(session.outcome, "skipped");
+        assert_eq!(vault.list_sos(20).unwrap().len(), 1);
+        assert!(vault.save_sos(SosInput { started_at_utc_ms: now - 30_000, ended_at_utc_ms: now, zone_id: "Asia/Shanghai".into(), initial_intensity: Some(11), final_intensity: None, outcome: "completed".into(), action: None }).is_err());
     }
 }

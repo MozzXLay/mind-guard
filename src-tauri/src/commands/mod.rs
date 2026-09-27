@@ -7,7 +7,7 @@ use zeroize::Zeroize;
 use crate::{
     application::AppState,
     domain::{VaultError, VaultResult},
-    infrastructure::vault::{BehaviorEvent, EventInput, Goal, PlanAction, TodaySnapshot, VaultStatus},
+    infrastructure::vault::{BehaviorEvent, EventInput, Goal, PlanAction, SosInput, SosSession, TodaySnapshot, VaultStatus},
 };
 
 fn with_vault<T>(
@@ -152,3 +152,9 @@ pub fn save_plan_action(state: State<'_, AppState>, id: Option<String>, goal_id:
 
 #[tauri::command(async)]
 pub fn set_action_completion(state: State<'_, AppState>, action_id: String, date: String, done: bool) -> VaultResult<()> { with_vault(state, |v| v.set_action_completion(&action_id, &date, done)) }
+
+#[tauri::command(async)]
+pub fn save_sos_session(state: State<'_, AppState>, input: SosInput) -> VaultResult<SosSession> { with_vault(state, |v| v.save_sos(input)) }
+
+#[tauri::command(async)]
+pub fn list_sos_sessions(state: State<'_, AppState>, limit: u32) -> VaultResult<Vec<SosSession>> { with_vault(state, |v| v.list_sos(limit)) }

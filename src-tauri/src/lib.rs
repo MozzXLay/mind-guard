@@ -49,6 +49,8 @@ pub fn run() {
             commands::list_plan_actions,
             commands::save_plan_action,
             commands::set_action_completion,
+            commands::save_sos_session,
+            commands::list_sos_sessions,
         ])
         .run(tauri::generate_context!())
         .expect("Tauri application could not start");

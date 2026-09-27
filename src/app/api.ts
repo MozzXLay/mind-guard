@@ -23,6 +23,9 @@ export type BehaviorEvent = EventInput & { id: string; localDate: string; localH
 export type TodaySnapshot = { todayEvents: number; loggedDaysLast7: number; recent: BehaviorEvent[] };
 export type Goal = { id: string; title: string; kind: string; status: 'active' | 'paused' | 'archived' };
 export type PlanAction = { id: string; goalId: string; title: string; enabled: boolean; goalStatus: Goal['status']; completed: boolean };
+export type SosOutcome = 'completed' | 'skipped' | 'interrupted';
+export type SosInput = { startedAtUtcMs: number; endedAtUtcMs: number; zoneId: string; initialIntensity: number | null; finalIntensity: number | null; outcome: SosOutcome; action: string | null };
+export type SosSession = Omit<SosInput, 'zoneId'> & { id: string; localDate: string };
 
 export const api = {
   status: () => invoke<VaultStatus>('vault_status'),
@@ -46,6 +49,8 @@ export const api = {
   actions: (date: string) => invoke<PlanAction[]>('list_plan_actions', { date }),
   saveAction: (id: string | null, goalId: string, title: string, enabled: boolean) => invoke<void>('save_plan_action', { id, goalId, title, enabled }),
   completeAction: (actionId: string, date: string, done: boolean) => invoke<void>('set_action_completion', { actionId, date, done }),
+  saveSos: (input: SosInput) => invoke<SosSession>('save_sos_session', { input }),
+  sosSessions: (limit = 20) => invoke<SosSession[]>('list_sos_sessions', { limit }),
 };
 
 export function errorText(error: unknown): string {

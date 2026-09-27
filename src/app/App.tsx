@@ -7,6 +7,7 @@ import Today from '../features/today/Today';
 import AnonymousSos from '../features/sos/AnonymousSos';
 import Records from '../features/records/Records';
 import Plan from '../features/plan/Plan';
+import SavedSos from '../features/sos/SavedSos';
 
 const navigation = [
   ['today', '今日', '◒'], ['records', '记录', '▤'], ['sos', 'SOS', '◉'],
@@ -185,7 +186,7 @@ export function Shell({ status, theme, setTheme, onLock, onStatus }: ShellProps)
       <div className="content">
         <Routes>
           <Route path="/today" element={<Today onSos={() => navigate('/sos')} onRecord={() => navigate('/records')} onPlan={() => navigate('/plan')} />} />
-          <Route path="/sos" element={<AnonymousSos onLeave={() => navigate('/today')} />} />
+          <Route path="/sos" element={<SavedSos onLeave={() => navigate('/today')} />} />
           <Route path="/records" element={<Records />} />
           <Route path="/plan" element={<Plan />} />
           <Route path="/insights" element={<ComingSoon title="把规律看清一点。" detail="7/30 天统计将在 M1 从真实记录计算。当前没有样本，不作趋势判断。" />} />
