@@ -3,9 +3,9 @@ import { api, errorText, type VaultStatus } from '../../app/api';
 
 const options = ['减少色情内容浏览', '减少深夜使用', '观察冲动和触发因素'];
 
-type Props = { onCreated: (status: VaultStatus) => void };
+type Props = { onCreated: (status: VaultStatus) => void; onRestore: () => void };
 
-export default function Onboarding({ onCreated }: Props) {
+export default function Onboarding({ onCreated, onRestore }: Props) {
   const [step, setStep] = useState(0);
   const [chosen, setChosen] = useState<string[]>([]);
   const [custom, setCustom] = useState('');
@@ -74,6 +74,7 @@ export default function Onboarding({ onCreated }: Props) {
         {step > 0 && <button type="button" className="button ghost" onClick={() => { setError(''); setStep(step - 1); }}>上一步</button>}
         <button className="button primary" disabled={busy}>{busy ? '正在创建加密存储…' : step === 2 ? '创建并进入今日' : '下一步'}</button>
       </div>
+      {step === 0 && <button type="button" className="text-button" onClick={onRestore}>已有加密备份？在此恢复</button>}
     </form>
   </main>;
 }

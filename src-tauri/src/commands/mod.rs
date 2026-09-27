@@ -7,7 +7,10 @@ use zeroize::Zeroize;
 use crate::{
     application::AppState,
     domain::{VaultError, VaultResult},
-    infrastructure::vault::VaultStatus,
+    infrastructure::vault::{
+        BehaviorEvent, EventInput, Goal, Insights, JournalEntry, JournalSummary, PlanAction,
+        SosInput, SosSession, TodaySnapshot, VaultStatus,
+    },
 };
 
 fn with_vault<T>(
@@ -106,4 +109,148 @@ pub fn restore_backup(
     });
     password.zeroize();
     result
+}
+
+#[tauri::command(async)]
+pub fn undo_last_restore(
+    state: State<'_, AppState>,
+    mut password: String,
+) -> VaultResult<VaultStatus> {
+    let result = with_vault(state, |vault| vault.undo_last_restore(&password));
+    password.zeroize();
+    result
+}
+
+#[tauri::command(async)]
+pub fn create_behavior_event(
+    state: State<'_, AppState>,
+    input: EventInput,
+) -> VaultResult<BehaviorEvent> {
+    with_vault(state, |v| v.create_event(input))
+}
+
+#[tauri::command(async)]
+pub fn get_behavior_event(state: State<'_, AppState>, id: String) -> VaultResult<BehaviorEvent> {
+    with_vault(state, |v| v.event(&id))
+}
+
+#[tauri::command(async)]
+pub fn list_behavior_events(
+    state: State<'_, AppState>,
+    from: Option<String>,
+    to: Option<String>,
+    event_type: Option<String>,
+    limit: u32,
+    offset: u32,
+) -> VaultResult<Vec<BehaviorEvent>> {
+    with_vault(state, |v| {
+        v.list_events(from, to, event_type, limit, offset)
+    })
+}
+
+#[tauri::command(async)]
+pub fn update_behavior_event(
+    state: State<'_, AppState>,
+    id: String,
+    input: EventInput,
+) -> VaultResult<BehaviorEvent> {
+    with_vault(state, |v| v.update_event(&id, input))
+}
+
+#[tauri::command(async)]
+pub fn delete_behavior_event(state: State<'_, AppState>, id: String) -> VaultResult<()> {
+    with_vault(state, |v| v.delete_event(&id))
+}
+
+#[tauri::command(async)]
+pub fn today_snapshot(
+    state: State<'_, AppState>,
+    today: String,
+    from: String,
+) -> VaultResult<TodaySnapshot> {
+    with_vault(state, |v| v.today_snapshot(&today, &from))
+}
+
+#[tauri::command(async)]
+pub fn list_goal_details(state: State<'_, AppState>) -> VaultResult<Vec<Goal>> {
+    with_vault(state, |v| v.goal_details())
+}
+
+#[tauri::command(async)]
+pub fn save_goal(
+    state: State<'_, AppState>,
+    id: Option<String>,
+    title: String,
+    status: String,
+) -> VaultResult<Goal> {
+    with_vault(state, |v| v.save_goal(id, title, status))
+}
+
+#[tauri::command(async)]
+pub fn list_plan_actions(state: State<'_, AppState>, date: String) -> VaultResult<Vec<PlanAction>> {
+    with_vault(state, |v| v.list_actions(&date))
+}
+
+#[tauri::command(async)]
+pub fn save_plan_action(
+    state: State<'_, AppState>,
+    id: Option<String>,
+    goal_id: String,
+    title: String,
+    enabled: bool,
+) -> VaultResult<()> {
+    with_vault(state, |v| v.save_action(id, goal_id, title, enabled))
+}
+
+#[tauri::command(async)]
+pub fn set_action_completion(
+    state: State<'_, AppState>,
+    action_id: String,
+    date: String,
+    done: bool,
+) -> VaultResult<()> {
+    with_vault(state, |v| v.set_action_completion(&action_id, &date, done))
+}
+
+#[tauri::command(async)]
+pub fn save_sos_session(state: State<'_, AppState>, input: SosInput) -> VaultResult<SosSession> {
+    with_vault(state, |v| v.save_sos(input))
+}
+
+#[tauri::command(async)]
+pub fn list_sos_sessions(state: State<'_, AppState>, limit: u32) -> VaultResult<Vec<SosSession>> {
+    with_vault(state, |v| v.list_sos(limit))
+}
+
+#[tauri::command(async)]
+pub fn list_journal_entries(
+    state: State<'_, AppState>,
+    limit: u32,
+    offset: u32,
+) -> VaultResult<Vec<JournalSummary>> {
+    with_vault(state, |v| v.list_journal(limit, offset))
+}
+
+#[tauri::command(async)]
+pub fn get_journal_entry(state: State<'_, AppState>, id: String) -> VaultResult<JournalEntry> {
+    with_vault(state, |v| v.journal_entry(&id))
+}
+
+#[tauri::command(async)]
+pub fn save_journal_entry(
+    state: State<'_, AppState>,
+    id: Option<String>,
+    content: String,
+) -> VaultResult<JournalEntry> {
+    with_vault(state, |v| v.save_journal(id, content))
+}
+
+#[tauri::command(async)]
+pub fn delete_journal_entry(state: State<'_, AppState>, id: String) -> VaultResult<()> {
+    with_vault(state, |v| v.delete_journal(&id))
+}
+
+#[tauri::command(async)]
+pub fn get_insights(state: State<'_, AppState>, to: String, days: u32) -> VaultResult<Insights> {
+    with_vault(state, |v| v.insights(&to, days))
 }

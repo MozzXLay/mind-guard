@@ -4,6 +4,8 @@ export type VaultStatus = {
   initialized: boolean;
   unlocked: boolean;
   autoLockMinutes: number;
+  recoveryRequired: boolean;
+  rollbackAvailable: boolean;
 };
 
 export type RestorePreview = {
@@ -16,6 +18,19 @@ export type CommandError = {
   message: string;
 };
 
+export type BehaviorType = 'urge' | 'viewed_content' | 'stopped_viewing' | 'masturbation' | 'alternative_action';
+export type EventInput = { eventType: BehaviorType; occurredAtUtcMs: number; zoneId: string; intensity: number | null; note: string | null; triggers: string[] };
+export type BehaviorEvent = EventInput & { id: string; localDate: string; localHour: number };
+export type TodaySnapshot = { todayEvents: number; loggedDaysLast7: number; recent: BehaviorEvent[] };
+export type Goal = { id: string; title: string; kind: string; status: 'active' | 'paused' | 'archived' };
+export type PlanAction = { id: string; goalId: string; title: string; enabled: boolean; goalStatus: Goal['status']; completed: boolean };
+export type SosOutcome = 'completed' | 'skipped' | 'interrupted';
+export type SosInput = { startedAtUtcMs: number; endedAtUtcMs: number; zoneId: string; initialIntensity: number | null; finalIntensity: number | null; outcome: SosOutcome; action: string | null };
+export type SosSession = Omit<SosInput, 'zoneId'> & { id: string; localDate: string };
+export type JournalSummary = { id: string; excerpt: string; createdAt: number; updatedAt: number };
+export type JournalEntry = { id: string; content: string; createdAt: number; updatedAt: number };
+export type Insights = { from: string; to: string; days: number; loggedDays: number; eventTotal: number; eventCounts: { name: BehaviorType; count: number }[]; sosCount: number; actionCount: number; intensitySamples: number; averageIntensity: number | null; hourlyDistribution: { hour: number; count: number }[]; triggerCounts: { name: string; count: number }[] };
+
 export const api = {
   status: () => invoke<VaultStatus>('vault_status'),
   initialize: (password: string, goals: string[]) => invoke<VaultStatus>('initialize_vault', { password, goals }),
@@ -27,6 +42,25 @@ export const api = {
   backup: (password: string) => invoke<string>('create_encrypted_backup', { password }),
   previewRestore: (path: string, password: string) => invoke<RestorePreview>('preview_restore', { path, password }),
   restore: (path: string, password: string) => invoke<VaultStatus>('restore_backup', { path, password }),
+  undoRestore: (password: string) => invoke<VaultStatus>('undo_last_restore', { password }),
+  createEvent: (input: EventInput) => invoke<BehaviorEvent>('create_behavior_event', { input }),
+  event: (id: string) => invoke<BehaviorEvent>('get_behavior_event', { id }),
+  events: (from: string | null, to: string | null, eventType: BehaviorType | null, limit = 50, offset = 0) => invoke<BehaviorEvent[]>('list_behavior_events', { from, to, eventType, limit, offset }),
+  updateEvent: (id: string, input: EventInput) => invoke<BehaviorEvent>('update_behavior_event', { id, input }),
+  deleteEvent: (id: string) => invoke<void>('delete_behavior_event', { id }),
+  today: (today: string, from: string) => invoke<TodaySnapshot>('today_snapshot', { today, from }),
+  goalDetails: () => invoke<Goal[]>('list_goal_details'),
+  saveGoal: (id: string | null, title: string, status: Goal['status']) => invoke<Goal>('save_goal', { id, title, status }),
+  actions: (date: string) => invoke<PlanAction[]>('list_plan_actions', { date }),
+  saveAction: (id: string | null, goalId: string, title: string, enabled: boolean) => invoke<void>('save_plan_action', { id, goalId, title, enabled }),
+  completeAction: (actionId: string, date: string, done: boolean) => invoke<void>('set_action_completion', { actionId, date, done }),
+  saveSos: (input: SosInput) => invoke<SosSession>('save_sos_session', { input }),
+  sosSessions: (limit = 20) => invoke<SosSession[]>('list_sos_sessions', { limit }),
+  journal: (limit = 50, offset = 0) => invoke<JournalSummary[]>('list_journal_entries', { limit, offset }),
+  journalEntry: (id: string) => invoke<JournalEntry>('get_journal_entry', { id }),
+  saveJournal: (id: string | null, content: string) => invoke<JournalEntry>('save_journal_entry', { id, content }),
+  deleteJournal: (id: string) => invoke<void>('delete_journal_entry', { id }),
+  insights: (to: string, days: 7 | 30) => invoke<Insights>('get_insights', { to, days }),
 };
 
 export function errorText(error: unknown): string {
