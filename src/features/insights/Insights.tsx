@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api, errorText, type Insights as InsightsData } from '../../app/api';
-import { eventLabels, todayDate } from '../records/Records';
+import type { CalendarDay } from '../../app/calendar';
+import { eventLabels } from '../records/Records';
 
 const triggerLabels: Record<string, string> = { boredom: '无聊', stress: '压力', loneliness: '孤独', anxiety: '焦虑', fatigue: '疲劳', sleep_loss: '睡眠不足', desire: '性欲', habit: '习惯', other: '其他' };
 
-export default function Insights() {
+export default function Insights({ day }: { day: CalendarDay }) {
   const [days, setDays] = useState<7 | 30>(7);
   const [data, setData] = useState<InsightsData | null>(null);
   const [error, setError] = useState('');
-  useEffect(() => { setData(null); void api.insights(todayDate(), days).then((result) => { setData(result); setError(''); }).catch((cause) => setError(errorText(cause))); }, [days]);
+  useEffect(() => { let active = true; setData(null); void api.insights(day.date, days).then((result) => { if (active) { setData(result); setError(''); } }).catch((cause) => { if (active) setError(errorText(cause)); }); return () => { active = false; }; }, [day.date, days]);
   const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, count: data?.hourlyDistribution.find((item) => item.hour === hour)?.count ?? 0 }));
   const maxHour = Math.max(1, ...hours.map((item) => item.count));
   return <><p className="kicker">INSIGHTS / 05</p><h1 className="page-title">把规律看清一点。</h1><p className="subtitle">只整理你留下的事件、行动和 SOS；不推断健康变化。</p>

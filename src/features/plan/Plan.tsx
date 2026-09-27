@@ -1,23 +1,25 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, errorText, type Goal, type PlanAction } from '../../app/api';
-import { todayDate } from '../records/Records';
+import type { CalendarDay } from '../../app/calendar';
 
 const statusLabels = { active: '进行中', paused: '已暂停', archived: '已归档' };
 type GoalDraft = { id: string | null; title: string; status: Goal['status'] };
 type ActionDraft = { id: string | null; goalId: string; title: string; enabled: boolean };
 
-export default function Plan() {
+export default function Plan({ day }: { day: CalendarDay }) {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [actions, setActions] = useState<PlanAction[]>([]);
   const [goalDraft, setGoalDraft] = useState<GoalDraft | null>(null);
   const [actionDraft, setActionDraft] = useState<ActionDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const request = useRef(0);
   const refresh = useCallback(async () => {
-    try { const [nextGoals, nextActions] = await Promise.all([api.goalDetails(), api.actions(todayDate())]); setGoals(nextGoals); setActions(nextActions); setError(''); }
-    catch (cause) { setError(errorText(cause)); }
-  }, []);
-  useEffect(() => { void refresh(); }, [refresh]);
+    const seq = ++request.current;
+    try { const [nextGoals, nextActions] = await Promise.all([api.goalDetails(), api.actions(day.date)]); if (seq !== request.current) return; setGoals(nextGoals); setActions(nextActions); setError(''); }
+    catch (cause) { if (seq === request.current) setError(errorText(cause)); }
+  }, [day.date]);
+  useEffect(() => { void refresh(); return () => { ++request.current; }; }, [refresh]);
   async function saveGoal(event: FormEvent) {
     event.preventDefault(); if (!goalDraft) return;
     setBusy(true);
@@ -32,16 +34,16 @@ export default function Plan() {
   }
   async function toggle(action: PlanAction, done: boolean) {
     setBusy(true);
-    try { await api.completeAction(action.id, todayDate(), done); await refresh(); }
+    try { await api.completeAction(action.id, day.date, done); await refresh(); }
     catch (cause) { setError(errorText(cause)); } finally { setBusy(false); }
   }
   const activeActions = actions.filter((action) => action.goalStatus === 'active' && action.enabled);
   return <><p className="kicker">PLAN / 04</p><h1 className="page-title">一个能调整的计划。</h1><p className="subtitle">目标由你定义，小行动可以暂停；历史不会因修改目标而重置。</p>
-    <div className="row-between"><span className="pill">今日小行动 {activeActions.filter((action) => action.completed).length} / {activeActions.length}</span><button className="button primary" onClick={() => setGoalDraft({ id: null, title: '', status: 'active' })}>＋ 新增目标</button></div>
+    <div className="row-between"><span className="pill">{day.date} 完成记录 {actions.filter((action) => action.completed).length} 项 · 当前可进行 {activeActions.length} 项</span><button className="button primary" onClick={() => setGoalDraft({ id: null, title: '', status: 'active' })}>＋ 新增目标</button></div>
     {error && <p className="message error" role="alert">{error}</p>}
     {goals.length === 0 && <section className="card below"><p className="muted">还没有目标。你可以从想调整的一件事开始；也可以暂时不设目标。</p></section>}
     {goals.map((goal) => <section className="card below" key={goal.id}><div className="row-between"><div><span className="pill">{statusLabels[goal.status]}</span><h2>{goal.title}</h2></div><button className="button ghost" onClick={() => setGoalDraft({ id: goal.id, title: goal.title, status: goal.status })}>编辑目标</button></div>
-      <h3>小行动</h3>{actions.filter((action) => action.goalId === goal.id).map((action) => <div className="row-between action-row" key={action.id}><label className="checkrow"><input type="checkbox" checked={action.completed} disabled={busy || !action.enabled || goal.status !== 'active'} onChange={(e) => void toggle(action, e.target.checked)} />{action.title}{!action.enabled && <span className="small muted"> · 已暂停</span>}</label><button className="button ghost" onClick={() => setActionDraft({ id: action.id, goalId: goal.id, title: action.title, enabled: action.enabled })}>编辑</button></div>)}
+      <h3>小行动</h3>{actions.filter((action) => action.goalId === goal.id).map((action) => <div className="row-between action-row" key={action.id}><label className="checkrow"><input type="checkbox" checked={action.completed} disabled={busy || !action.enabled || goal.status !== 'active'} onChange={(e) => void toggle(action, e.target.checked)} />{action.title}{!action.enabled && <span className="small muted"> · 已暂停</span>}</label>{action.completed && (!action.enabled || goal.status !== 'active') && <button className="button ghost" disabled={busy} onClick={() => void toggle(action, false)}>撤销今日完成</button>}<button className="button ghost" onClick={() => setActionDraft({ id: action.id, goalId: goal.id, title: action.title, enabled: action.enabled })}>编辑</button></div>)}
       {actions.every((action) => action.goalId !== goal.id) && <p className="muted">还没有小行动。</p>}
       {goal.status !== 'archived' && <button className="button ghost" onClick={() => setActionDraft({ id: null, goalId: goal.id, title: '', enabled: true })}>＋ 添加小行动</button>}
     </section>)}
