@@ -38,6 +38,7 @@ pub fn run() {
             commands::create_encrypted_backup,
             commands::preview_restore,
             commands::restore_backup,
+            commands::undo_last_restore,
             commands::create_behavior_event,
             commands::get_behavior_event,
             commands::list_behavior_events,

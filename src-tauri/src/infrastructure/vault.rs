@@ -1,7 +1,7 @@
 use std::{
     fs::{self, File, OpenOptions},
     io::Write,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -66,6 +66,7 @@ pub struct VaultStatus {
     pub unlocked: bool,
     pub auto_lock_minutes: u32,
     pub recovery_required: bool,
+    pub rollback_available: bool,
 }
 
 pub struct VaultService {
@@ -105,6 +106,26 @@ impl VaultService {
         })
     }
 
+    fn latest_rollback_pair(&self) -> Option<(PathBuf, PathBuf)> {
+        let mut pairs = Vec::new();
+        for entry in fs::read_dir(&self.data_dir).ok()?.filter_map(Result::ok) {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if let Some(suffix) = name
+                .strip_prefix(".rollback-")
+                .and_then(|s| s.strip_suffix(".db"))
+            {
+                let manifest = self.data_dir.join(format!(".rollback-{suffix}.json"));
+                if manifest.exists() {
+                    if let Ok(meta) = entry.metadata() {
+                        pairs.push(((meta.ctime(), meta.ctime_nsec()), entry.path(), manifest));
+                    }
+                }
+            }
+        }
+        pairs.sort_by_key(|p| p.0);
+        pairs.pop().map(|(_, db, manifest)| (db, manifest))
+    }
+
     pub fn status(&mut self) -> VaultResult<VaultStatus> {
         let manifest_exists = self.manifest_path().exists();
         let db_exists = self.db_path().exists();
@@ -128,6 +149,7 @@ impl VaultService {
             unlocked: self.data_key.is_some() && !recovery_required,
             auto_lock_minutes: minutes,
             recovery_required,
+            rollback_available: self.latest_rollback_pair().is_some(),
         })
     }
 
@@ -375,6 +397,54 @@ impl VaultService {
         self.data_key = Some(key);
         self.last_activity = Some(Instant::now());
         self.status()
+    }
+
+    pub fn undo_last_restore(&mut self, password: &str) -> VaultResult<VaultStatus> {
+        let (old_db, old_manifest) = self
+            .latest_rollback_pair()
+            .ok_or_else(VaultError::invalid)?;
+        reject_symlink(&old_db)?;
+        reject_symlink(&old_manifest)?;
+        let bytes = fs::read(&old_manifest).map_err(|_| VaultError::io())?;
+        if bytes.len() > 16 * 1024 {
+            return Err(VaultError::unsupported());
+        }
+        let manifest: Manifest =
+            serde_json::from_slice(&bytes).map_err(|_| VaultError::unsupported())?;
+        validate_manifest(&manifest)?;
+        let key = unwrap_key(&manifest, password)?;
+        let database = fs::read(&old_db).map_err(|_| VaultError::io())?;
+        let (_, database) = self.verify_candidate(&database, &key)?;
+        let nonce = random_array::<24>()?;
+        let encrypted = XChaCha20Poly1305::new(Key::from_slice(&*key))
+            .encrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: &database,
+                    aad: BACKUP_AAD,
+                },
+            )
+            .map_err(|_| VaultError::crypto())?;
+        let file = BackupFile {
+            format_version: FORMAT_VERSION,
+            manifest,
+            nonce: hex::encode(nonce),
+            encrypted_database: STANDARD.encode(encrypted),
+        };
+        let path = self
+            .data_dir
+            .join(format!(".undo-{}.mgb", hex::encode(random_array::<8>()?)));
+        atomic_write(
+            &path,
+            &serde_json::to_vec(&file).map_err(|_| VaultError::io())?,
+        )?;
+        let result = self.restore_backup(&path, password);
+        let _ = fs::remove_file(&path);
+        if result.is_ok() {
+            let _ = fs::remove_file(old_db);
+            let _ = fs::remove_file(old_manifest);
+        }
+        result
     }
 
     fn verify_candidate(&self, database: &[u8], key: &[u8; 32]) -> VaultResult<(u64, Vec<u8>)> {
@@ -761,10 +831,18 @@ mod tests {
         let preview = second.preview_restore(&backup, PASSWORD).unwrap();
         assert_eq!(preview.goal_count, 1);
         second.restore_backup(&backup, PASSWORD).unwrap();
-        assert_eq!(second.list_goals().unwrap(), vec![marker]);
+        assert_eq!(second.list_goals().unwrap(), vec![marker.clone()]);
         second.lock().unwrap();
         assert!(second.unlock(OTHER_PASSWORD).is_err());
         second.unlock(PASSWORD).unwrap();
+        assert!(second.status().unwrap().rollback_available);
+        assert!(second.undo_last_restore(PASSWORD).is_err());
+        assert_eq!(second.list_goals().unwrap(), vec![marker]);
+        second.undo_last_restore(OTHER_PASSWORD).unwrap();
+        assert_eq!(second.list_goals().unwrap(), vec!["different goal"]);
+        second.lock().unwrap();
+        assert!(second.unlock(PASSWORD).is_err());
+        second.unlock(OTHER_PASSWORD).unwrap();
     }
 
     #[test]

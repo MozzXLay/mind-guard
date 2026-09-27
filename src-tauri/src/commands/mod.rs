@@ -112,6 +112,16 @@ pub fn restore_backup(
 }
 
 #[tauri::command(async)]
+pub fn undo_last_restore(
+    state: State<'_, AppState>,
+    mut password: String,
+) -> VaultResult<VaultStatus> {
+    let result = with_vault(state, |vault| vault.undo_last_restore(&password));
+    password.zeroize();
+    result
+}
+
+#[tauri::command(async)]
 pub fn create_behavior_event(
     state: State<'_, AppState>,
     input: EventInput,

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useLocation } from 'react-router-dom';
 import { api, errorText, type BehaviorEvent, type BehaviorType, type EventInput } from '../../app/api';
 
 export const eventLabels: Record<BehaviorType, string> = { urge: '出现冲动', viewed_content: '浏览内容', stopped_viewing: '主动停止浏览', masturbation: '自慰', alternative_action: '替代行动' };
@@ -11,11 +12,12 @@ function inputTime(date: Date) { return `${localDate(date)}T${String(date.getHou
 export function eventWhen(event: BehaviorEvent) { return new Intl.DateTimeFormat('zh-CN', { timeZone: event.zoneId, dateStyle: 'medium', timeStyle: 'short' }).format(new Date(event.occurredAtUtcMs)); }
 
 export default function Records() {
+  const location = useLocation();
   const [items, setItems] = useState<BehaviorEvent[]>([]);
   const [period, setPeriod] = useState(30);
   const [kind, setKind] = useState<BehaviorType | ''>('');
   const [offset, setOffset] = useState(0);
-  const [editing, setEditing] = useState<BehaviorEvent | null | undefined>(undefined);
+  const [editing, setEditing] = useState<BehaviorEvent | null | undefined>(() => new URLSearchParams(location.search).has('new') ? null : undefined);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [undoId, setUndoId] = useState('');
@@ -50,11 +52,20 @@ function EventEditor({ original, onClose, onSaved }: { original: BehaviorEvent |
   const [note, setNote] = useState(original?.note ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const dialog = useRef<HTMLFormElement>(null);
+  const dirty = eventType !== (original?.eventType ?? 'urge') || time !== initialTime || intensity !== (original?.intensity?.toString() ?? '') || note !== (original?.note ?? '') || [...triggers].sort().join(',') !== [...(original?.triggers ?? [])].sort().join(',');
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && window.confirm('放弃未保存的修改？')) onClose(); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && (!dirty || window.confirm('放弃未保存的修改？'))) onClose();
+      if (event.key === 'Tab' && dialog.current) {
+        const controls = [...dialog.current.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)')];
+        if (event.shiftKey && document.activeElement === controls[0]) { event.preventDefault(); controls.at(-1)?.focus(); }
+        else if (!event.shiftKey && document.activeElement === controls.at(-1)) { event.preventDefault(); controls[0]?.focus(); }
+      }
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, dirty]);
   async function save(event: FormEvent) {
     event.preventDefault();
     const parsed = new Date(time).getTime();
@@ -65,14 +76,14 @@ function EventEditor({ original, onClose, onSaved }: { original: BehaviorEvent |
     try { const saved = original ? await api.updateEvent(original.id, input) : await api.createEvent(input); await onSaved(saved.id); }
     catch (cause) { setError(errorText(cause)); } finally { setBusy(false); }
   }
-  return <div className="modal-backdrop"><form className="auth-panel record-editor" onSubmit={(e) => void save(e)} role="dialog" aria-modal="true" aria-label={original ? '编辑记录' : '新建记录'}>
+  return <div className="modal-backdrop"><form ref={dialog} className="auth-panel record-editor" onSubmit={(e) => void save(e)} role="dialog" aria-modal="true" aria-label={original ? '编辑记录' : '新建记录'}>
     <h2>{original ? '编辑记录' : '新建记录'}</h2><p className="small muted">时间按当前系统时区编辑；未修改时间时保留原记录时区。</p>
-    <label className="field">发生了什么？<select value={eventType} onChange={(e) => setEventType(e.target.value as BehaviorType)}>{types.map((type) => <option key={type} value={type}>{eventLabels[type]}</option>)}</select></label>
+    <label className="field">发生了什么？<select autoFocus value={eventType} onChange={(e) => setEventType(e.target.value as BehaviorType)}>{types.map((type) => <option key={type} value={type}>{eventLabels[type]}</option>)}</select></label>
     <label className="field">发生时间<input type="datetime-local" required value={time} onChange={(e) => setTime(e.target.value)} /></label>
     <label className="field">强度 0–10（可留空）<select value={intensity} onChange={(e) => setIntensity(e.target.value)}><option value="">不记录</option>{Array.from({ length: 11 }, (_, i) => <option key={i} value={i}>{i}</option>)}</select></label>
     <fieldset className="field"><legend>触发因素（可多选）</legend>{Object.entries(triggerLabels).map(([code, label]) => <label className="checkrow" key={code}><input type="checkbox" checked={triggers.includes(code)} onChange={() => setTriggers((old) => old.includes(code) ? old.filter((x) => x !== code) : [...old, code])} />{label}</label>)}</fieldset>
     <label className="field">备注（可留空，最多 2000 字）<textarea maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} /></label>
     {error && <p className="message error" role="alert">{error}</p>}
-    <div className="form-actions"><button type="button" className="button ghost" onClick={() => { if (!note && time === initialTime || window.confirm('放弃未保存的修改？')) onClose(); }}>取消</button><button className="button primary" disabled={busy}>{busy ? '正在保存…' : '保存记录'}</button></div>
+    <div className="form-actions"><button type="button" className="button ghost" onClick={() => { if (!dirty || window.confirm('放弃未保存的修改？')) onClose(); }}>取消</button><button className="button primary" disabled={busy}>{busy ? '正在保存…' : '保存记录'}</button></div>
   </form></div>;
 }

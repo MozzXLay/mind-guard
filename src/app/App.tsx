@@ -198,7 +198,7 @@ export function Shell({ status, theme, setTheme, onLock, onStatus }: ShellProps)
       <header className="topbar"><span>净界 / 私密空间</span><div><span className="top-date">{new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(new Date())}</span><button className="button small-button" onClick={onLock}>立即锁定</button></div></header>
       <div className="content">
         <Routes>
-          <Route path="/today" element={<Today onSos={() => navigate('/sos')} onRecord={() => navigate('/records')} onPlan={() => navigate('/plan')} />} />
+          <Route path="/today" element={<Today onSos={() => navigate('/sos')} onRecord={() => navigate('/records?new=1')} onPlan={() => navigate('/plan')} />} />
           <Route path="/sos" element={<SavedSos onLeave={() => navigate('/today')} />} />
           <Route path="/records" element={<Records />} />
           <Route path="/plan" element={<Plan />} />
@@ -224,6 +224,7 @@ function Settings({ status, theme, setTheme, onStatus }: {
   const [backupPassword, setBackupPassword] = useState('');
   const [backupPath, setBackupPath] = useState('');
   const [restorePassword, setRestorePassword] = useState('');
+  const [undoPassword, setUndoPassword] = useState('');
   const [restorePath, setRestorePath] = useState('');
   const [preview, setPreview] = useState<RestorePreview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -254,7 +255,7 @@ function Settings({ status, theme, setTheme, onStatus }: {
         {backupPath && <p className="small path" role="status">文件位置：{backupPath}</p>}
       </section>
     </div>
-    <section className="card below"><h2>恢复加密备份</h2><p className="muted">先验证备份和密码并预览，再替换当前数据。替换前会在应用私有目录保留当前密文库与密钥清单，以便手工撤销。</p>
+    <section className="card below"><h2>恢复加密备份</h2><p className="muted">先验证备份和密码并预览，再替换当前数据。替换前会在应用私有目录保留当前密文库与密钥清单，可在下方撤销。</p>
       <div className="form-actions left"><button className="button ghost" disabled={busy} onClick={() => void run(chooseBackup)}>选择 .mgb 文件</button>{restorePath && <span className="small path">{restorePath}</span>}</div>
       {restorePath && <><label className="field">备份密码<input type="password" autoComplete="off" value={restorePassword} onChange={(e) => { setRestorePassword(e.target.value); setPreview(null); }} /></label>
         <div className="form-actions left"><button className="button ghost" disabled={busy || !restorePassword} onClick={() => void run(async () => { setPreview(await api.previewRestore(restorePath, restorePassword)); setMessage('备份验证通过，可确认恢复。'); })}>验证并预览</button></div>
@@ -263,6 +264,7 @@ function Settings({ status, theme, setTheme, onStatus }: {
         <button className="button primary" disabled={busy} onClick={() => void run(async () => { const next = await api.restore(restorePath, restorePassword); onStatus(next); setRestorePassword(''); setPreview(null); setMessage('备份已恢复。'); })}>确认替换当前数据</button>
       </div>}
     </section>
+    {status.rollbackAvailable && <section className="card below"><h2>撤销上次恢复</h2><p className="muted">输入恢复前原库的主密码。应用会先验证旧密文库，再交换回旧数据；当前库仍会保留为新的可撤销副本。</p><label className="field">原库主密码<input type="password" autoComplete="off" value={undoPassword} onChange={(e) => setUndoPassword(e.target.value)} /></label><button className="button ghost" disabled={busy || !undoPassword} onClick={() => { if (window.confirm('撤销上次恢复并切换回原库？')) void run(async () => { const next = await api.undoRestore(undoPassword); onStatus(next); setUndoPassword(''); setPreview(null); setRestorePassword(''); setMessage('已切换回恢复前的数据。'); }); }}>验证并撤销</button></section>}
     <p className="small muted below">无账号 · 无云同步 · 无遥测。浏览器扩展与屏蔽属于 M2，当前未开放。</p>
     {message && <p role="status" className="message">{message}</p>}
     {error && <p role="alert" className="message error">{error}</p>}

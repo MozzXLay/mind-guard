@@ -5,6 +5,7 @@ export type VaultStatus = {
   unlocked: boolean;
   autoLockMinutes: number;
   recoveryRequired: boolean;
+  rollbackAvailable: boolean;
 };
 
 export type RestorePreview = {
@@ -41,6 +42,7 @@ export const api = {
   backup: (password: string) => invoke<string>('create_encrypted_backup', { password }),
   previewRestore: (path: string, password: string) => invoke<RestorePreview>('preview_restore', { path, password }),
   restore: (path: string, password: string) => invoke<VaultStatus>('restore_backup', { path, password }),
+  undoRestore: (password: string) => invoke<VaultStatus>('undo_last_restore', { password }),
   createEvent: (input: EventInput) => invoke<BehaviorEvent>('create_behavior_event', { input }),
   event: (id: string) => invoke<BehaviorEvent>('get_behavior_event', { id }),
   events: (from: string | null, to: string | null, eventType: BehaviorType | null, limit = 50, offset = 0) => invoke<BehaviorEvent[]>('list_behavior_events', { from, to, eventType, limit, offset }),

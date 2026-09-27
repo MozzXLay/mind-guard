@@ -52,7 +52,7 @@ pub(super) fn local_parts(timestamp_ms: i64, zone: &str) -> VaultResult<(String,
     if bytes.get(header..header + 4) != Some(b"TZif") {
         return Err(VaultError::invalid());
     }
-    let (_gmt, _std, leap, time, types, chars) = counts(header)?;
+    let (gmt, std, leap, time, types, chars) = counts(header)?;
     if types == 0 || time > 100_000 || types > 256 || chars > 100_000 || leap > 100_000 {
         return Err(VaultError::invalid());
     }
@@ -71,17 +71,35 @@ pub(super) fn local_parts(timestamp_ms: i64, zone: &str) -> VaultResult<(String,
     }
     let timestamp = timestamp_ms.div_euclid(1000);
     let mut selected = None;
+    let mut last_transition = None;
     for i in 0..time {
         let transition = i64::from_be_bytes(
             bytes[start + i * 8..start + (i + 1) * 8]
                 .try_into()
                 .unwrap(),
         );
+        last_transition = Some(transition);
         if transition <= timestamp {
             selected = Some(bytes[transitions_end + i] as usize);
         } else {
             break;
         }
+    }
+    let tail_start = info_end
+        .checked_add(chars + leap * 12 + std + gmt)
+        .ok_or_else(VaultError::invalid)?;
+    let tail = bytes.get(tail_start..).ok_or_else(VaultError::invalid)?;
+    if last_transition.is_some_and(|last| timestamp > last)
+        && tail.first() == Some(&b'\n')
+        && tail
+            .iter()
+            .skip(1)
+            .take_while(|b| **b != b'\n')
+            .any(|b| *b == b',')
+    {
+        // Future POSIX DST rules are outside the transition table. Refuse an
+        // event instead of assigning a possibly wrong historical local day.
+        return Err(VaultError::unsupported());
     }
     let index = selected.unwrap_or_else(|| {
         (0..types)
@@ -128,5 +146,6 @@ mod tests {
             local_parts(1730676600000, "Asia/Shanghai").unwrap().0,
             "2024-11-04"
         );
+        assert!(local_parts(4_102_444_800_000, "America/New_York").is_err());
     }
 }

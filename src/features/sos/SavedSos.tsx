@@ -39,7 +39,7 @@ export default function SavedSos({ onLeave }: { onLeave: () => void }) {
     finally { setBusy(false); }
   }
   const time = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
-  return <><p className="kicker">PAUSE / 03</p><h1 className="page-title">现在先缓一缓。</h1><p className="subtitle">可以呼吸、静坐、跳过，或随时离开。保存由你决定。</p>
+  return <><p className="kicker">PAUSE / 03</p><h1 className="page-title">现在先缓一缓。</h1><p className="subtitle">可以呼吸、静坐、跳过，或随时离开。保存由你决定；锁屏会丢弃未保存的会话。</p>
     <section className="card sos-panel"><div className={`breath ${running ? 'live' : ''}`} aria-label={`剩余 ${time}`}><span>{time}</span></div>
       {startedAt === null && <label className="field">开始强度 0–10（可留空）<select value={initial} onChange={(e) => setInitial(e.target.value)}><option value="">不记录</option>{Array.from({ length: 11 }, (_, i) => <option key={i} value={i}>{i}</option>)}</select></label>}
       <div className="form-actions">
