@@ -247,7 +247,7 @@ function Settings({ status, theme, setTheme, onStatus }: {
       <section className="card"><h2>外观与使用</h2>
         <label className="field">主题<select value={theme} onChange={(e) => setTheme(e.target.value)}><option value="dark">深色</option><option value="light">浅色</option></select></label>
         <label className="field">自动锁定<select value={status.autoLockMinutes} disabled={busy} onChange={(e) => void run(async () => onStatus(await api.setAutoLock(Number(e.target.value))))}><option value={5}>5 分钟</option><option value={10}>10 分钟</option><option value={30}>30 分钟</option></select></label>
-        <p className="small muted">窗口隐藏时立即锁定。提醒和开机启动默认关闭。</p>
+        <p className="small muted">窗口隐藏时立即锁定。提醒、开机启动与全局热键尚未开放。</p>
       </section>
       <section className="card"><h2>创建加密备份</h2><p className="muted">再次输入主密码。备份保存在应用私有目录的 backups 文件夹内。</p>
         <label className="field">主密码<input type="password" autoComplete="current-password" value={backupPassword} onChange={(e) => setBackupPassword(e.target.value)} /></label>
