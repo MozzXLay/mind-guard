@@ -7,7 +7,7 @@ use zeroize::Zeroize;
 use crate::{
     application::AppState,
     domain::{VaultError, VaultResult},
-    infrastructure::vault::{BehaviorEvent, EventInput, TodaySnapshot, VaultStatus},
+    infrastructure::vault::{BehaviorEvent, EventInput, Goal, PlanAction, TodaySnapshot, VaultStatus},
 };
 
 fn with_vault<T>(
@@ -137,3 +137,18 @@ pub fn delete_behavior_event(state: State<'_, AppState>, id: String) -> VaultRes
 pub fn today_snapshot(state: State<'_, AppState>, today: String, from: String) -> VaultResult<TodaySnapshot> {
     with_vault(state, |v| v.today_snapshot(&today, &from))
 }
+
+#[tauri::command(async)]
+pub fn list_goal_details(state: State<'_, AppState>) -> VaultResult<Vec<Goal>> { with_vault(state, |v| v.goal_details()) }
+
+#[tauri::command(async)]
+pub fn save_goal(state: State<'_, AppState>, id: Option<String>, title: String, status: String) -> VaultResult<Goal> { with_vault(state, |v| v.save_goal(id, title, status)) }
+
+#[tauri::command(async)]
+pub fn list_plan_actions(state: State<'_, AppState>, date: String) -> VaultResult<Vec<PlanAction>> { with_vault(state, |v| v.list_actions(&date)) }
+
+#[tauri::command(async)]
+pub fn save_plan_action(state: State<'_, AppState>, id: Option<String>, goal_id: String, title: String, enabled: bool) -> VaultResult<()> { with_vault(state, |v| v.save_action(id, goal_id, title, enabled)) }
+
+#[tauri::command(async)]
+pub fn set_action_completion(state: State<'_, AppState>, action_id: String, date: String, done: bool) -> VaultResult<()> { with_vault(state, |v| v.set_action_completion(&action_id, &date, done)) }

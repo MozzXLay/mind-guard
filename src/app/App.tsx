@@ -6,6 +6,7 @@ import Onboarding from '../features/onboarding/Onboarding';
 import Today from '../features/today/Today';
 import AnonymousSos from '../features/sos/AnonymousSos';
 import Records from '../features/records/Records';
+import Plan from '../features/plan/Plan';
 
 const navigation = [
   ['today', '今日', '◒'], ['records', '记录', '▤'], ['sos', 'SOS', '◉'],
@@ -24,7 +25,6 @@ function useTheme() {
 
 export default function App() {
   const [status, setStatus] = useState<VaultStatus | null>(null);
-  const [goals, setGoals] = useState<string[]>([]);
   const [startupError, setStartupError] = useState('');
   const [anonymousSos, setAnonymousSos] = useState(false);
   const [theme, setTheme] = useTheme();
@@ -35,8 +35,6 @@ export default function App() {
       const next = await api.status();
       setStatus(next);
       setStartupError('');
-      if (next.unlocked) setGoals(await api.goals());
-      else setGoals([]);
     } catch (cause) {
       setStartupError(errorText(cause));
     }
@@ -45,7 +43,6 @@ export default function App() {
   useEffect(() => { void refresh(); }, [refresh]);
 
   const lock = useCallback(async () => {
-    setGoals([]);
     setStatus((current) => current ? { ...current, unlocked: false } : current);
     try { setStatus(await api.lock()); }
     catch (cause) { setStartupError(errorText(cause)); }
@@ -70,7 +67,6 @@ export default function App() {
         void lock();
         return;
       }
-      setGoals([]);
       setStatus((current) => current ? { ...current, unlocked: false } : current);
       void refresh();
     };
@@ -100,11 +96,11 @@ export default function App() {
   </section></main>;
   if (!status) return <main className="auth-screen"><p role="status">正在打开本地空间…</p></main>;
   if (!status.initialized) return <Onboarding onCreated={(next) => { setStatus(next); void refresh(); }} />;
-  if (status.recoveryRequired) return <RecoveryScreen onRestored={(next) => { setGoals([]); setStatus(next); void refresh(); }} />;
+  if (status.recoveryRequired) return <RecoveryScreen onRestored={(next) => { setStatus(next); void refresh(); }} />;
   if (anonymousSos) return <AnonymousSos standalone onLeave={() => setAnonymousSos(false)} />;
   if (!status.unlocked) return <LockScreen onUnlocked={(next) => { setStatus(next); void refresh(); }} onSos={() => setAnonymousSos(true)} />;
 
-  return <HashRouter><Shell status={status} goals={goals} theme={theme} setTheme={setTheme} onLock={lock} onStatus={setStatus} onGoals={setGoals} /></HashRouter>;
+  return <HashRouter><Shell status={status} theme={theme} setTheme={setTheme} onLock={lock} onStatus={setStatus} /></HashRouter>;
 }
 
 function LockScreen({ onUnlocked, onSos }: { onUnlocked: (status: VaultStatus) => void; onSos: () => void }) {
@@ -165,12 +161,12 @@ function RecoveryScreen({ onRestored, onCancel }: { onRestored: (status: VaultSt
 }
 
 type ShellProps = {
-  status: VaultStatus; goals: string[]; theme: string;
+  status: VaultStatus; theme: string;
   setTheme: (theme: string) => void; onLock: () => void;
-  onStatus: (status: VaultStatus) => void; onGoals: (goals: string[]) => void;
+  onStatus: (status: VaultStatus) => void;
 };
 
-export function Shell({ status, goals, theme, setTheme, onLock, onStatus, onGoals }: ShellProps) {
+export function Shell({ status, theme, setTheme, onLock, onStatus }: ShellProps) {
   const navigate = useNavigate();
   return <div className="app-shell">
     <aside className="sidebar">
@@ -188,14 +184,14 @@ export function Shell({ status, goals, theme, setTheme, onLock, onStatus, onGoal
       <header className="topbar"><span>净界 / 私密空间</span><div><span className="top-date">{new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(new Date())}</span><button className="button small-button" onClick={onLock}>立即锁定</button></div></header>
       <div className="content">
         <Routes>
-          <Route path="/today" element={<Today goals={goals} onSos={() => navigate('/sos')} onRecord={() => navigate('/records')} />} />
+          <Route path="/today" element={<Today onSos={() => navigate('/sos')} onRecord={() => navigate('/records')} onPlan={() => navigate('/plan')} />} />
           <Route path="/sos" element={<AnonymousSos onLeave={() => navigate('/today')} />} />
           <Route path="/records" element={<Records />} />
-          <Route path="/plan" element={<ComingSoon title="一个能调整的计划。" detail="目标编辑和小行动将在 M1 开放。引导时选择的目标已保存在加密数据库中。" goals={goals} />} />
+          <Route path="/plan" element={<Plan />} />
           <Route path="/insights" element={<ComingSoon title="把规律看清一点。" detail="7/30 天统计将在 M1 从真实记录计算。当前没有样本，不作趋势判断。" />} />
           <Route path="/journal" element={<ComingSoon title="写给自己的几句话。" detail="日记将在 M1 开放；当前没有日记输入或明文暂存。" />} />
           <Route path="/blocker" element={<ComingSoon title="降低访问的便利性。" detail="浏览器扩展属于 M2。Firefox 与 Chromium 均未连接，当前没有规则生效。" />} />
-          <Route path="/settings" element={<Settings status={status} theme={theme} setTheme={setTheme} onStatus={onStatus} onGoals={onGoals} />} />
+          <Route path="/settings" element={<Settings status={status} theme={theme} setTheme={setTheme} onStatus={onStatus} />} />
           <Route path="*" element={<Navigate to="/today" replace />} />
         </Routes>
       </div>
@@ -203,13 +199,13 @@ export function Shell({ status, goals, theme, setTheme, onLock, onStatus, onGoal
   </div>;
 }
 
-function ComingSoon({ title, detail, goals }: { title: string; detail: string; goals?: string[] }) {
-  return <><p className="kicker">阶段状态</p><h1 className="page-title">{title}</h1><section className="card coming-soon"><span className="pill">后续里程碑</span><h2>此功能尚未开放</h2><p className="muted">{detail}</p>{goals && goals.length > 0 && <ul className="goal-list">{goals.map((goal) => <li key={goal}>{goal}</li>)}</ul>}</section></>;
+function ComingSoon({ title, detail }: { title: string; detail: string }) {
+  return <><p className="kicker">阶段状态</p><h1 className="page-title">{title}</h1><section className="card coming-soon"><span className="pill">后续里程碑</span><h2>此功能尚未开放</h2><p className="muted">{detail}</p></section></>;
 }
 
-function Settings({ status, theme, setTheme, onStatus, onGoals }: {
+function Settings({ status, theme, setTheme, onStatus }: {
   status: VaultStatus; theme: string; setTheme: (theme: string) => void;
-  onStatus: (status: VaultStatus) => void; onGoals: (goals: string[]) => void;
+  onStatus: (status: VaultStatus) => void;
 }) {
   const [backupPassword, setBackupPassword] = useState('');
   const [backupPath, setBackupPath] = useState('');
@@ -250,7 +246,7 @@ function Settings({ status, theme, setTheme, onStatus, onGoals }: {
         <div className="form-actions left"><button className="button ghost" disabled={busy || !restorePassword} onClick={() => void run(async () => { setPreview(await api.previewRestore(restorePath, restorePassword)); setMessage('备份验证通过，可确认恢复。'); })}>验证并预览</button></div>
       </>}
       {preview && <div className="quiet-box"><p>备份创建于：{new Date(preview.createdAt * 1000).toLocaleString('zh-CN')}</p><p>包含目标：{preview.goalCount} 项</p>
-        <button className="button primary" disabled={busy} onClick={() => void run(async () => { const next = await api.restore(restorePath, restorePassword); onStatus(next); onGoals(await api.goals()); setRestorePassword(''); setPreview(null); setMessage('备份已恢复。'); })}>确认替换当前数据</button>
+        <button className="button primary" disabled={busy} onClick={() => void run(async () => { const next = await api.restore(restorePath, restorePassword); onStatus(next); setRestorePassword(''); setPreview(null); setMessage('备份已恢复。'); })}>确认替换当前数据</button>
       </div>}
     </section>
     <p className="small muted below">无账号 · 无云同步 · 无遥测。记录、日记和浏览器扩展尚未开放。</p>

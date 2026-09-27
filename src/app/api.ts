@@ -21,6 +21,8 @@ export type BehaviorType = 'urge' | 'viewed_content' | 'stopped_viewing' | 'mast
 export type EventInput = { eventType: BehaviorType; occurredAtUtcMs: number; zoneId: string; intensity: number | null; note: string | null; triggers: string[] };
 export type BehaviorEvent = EventInput & { id: string; localDate: string; localHour: number };
 export type TodaySnapshot = { todayEvents: number; loggedDaysLast7: number; recent: BehaviorEvent[] };
+export type Goal = { id: string; title: string; kind: string; status: 'active' | 'paused' | 'archived' };
+export type PlanAction = { id: string; goalId: string; title: string; enabled: boolean; goalStatus: Goal['status']; completed: boolean };
 
 export const api = {
   status: () => invoke<VaultStatus>('vault_status'),
@@ -39,6 +41,11 @@ export const api = {
   updateEvent: (id: string, input: EventInput) => invoke<BehaviorEvent>('update_behavior_event', { id, input }),
   deleteEvent: (id: string) => invoke<void>('delete_behavior_event', { id }),
   today: (today: string, from: string) => invoke<TodaySnapshot>('today_snapshot', { today, from }),
+  goalDetails: () => invoke<Goal[]>('list_goal_details'),
+  saveGoal: (id: string | null, title: string, status: Goal['status']) => invoke<Goal>('save_goal', { id, title, status }),
+  actions: (date: string) => invoke<PlanAction[]>('list_plan_actions', { date }),
+  saveAction: (id: string | null, goalId: string, title: string, enabled: boolean) => invoke<void>('save_plan_action', { id, goalId, title, enabled }),
+  completeAction: (actionId: string, date: string, done: boolean) => invoke<void>('set_action_completion', { actionId, date, done }),
 };
 
 export function errorText(error: unknown): string {
