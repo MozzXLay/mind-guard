@@ -4,6 +4,7 @@ export type VaultStatus = {
   initialized: boolean;
   unlocked: boolean;
   autoLockMinutes: number;
+  recoveryRequired: boolean;
 };
 
 export type RestorePreview = {

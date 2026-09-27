@@ -27,7 +27,7 @@ export default function App() {
   const [startupError, setStartupError] = useState('');
   const [anonymousSos, setAnonymousSos] = useState(false);
   const [theme, setTheme] = useTheme();
-  const lastTouch = useRef(Date.now());
+  const lastTouch = useRef(performance.now());
 
   const refresh = useCallback(async () => {
     try {
@@ -53,22 +53,43 @@ export default function App() {
   useEffect(() => {
     if (!status?.unlocked) return;
     const timeout = status.autoLockMinutes * 60 * 1000;
-    let lastInput = Date.now();
+    let lastInput = performance.now();
+    let lastWall = Date.now();
     const onInput = () => {
-      lastInput = Date.now();
+      lastInput = performance.now();
+      lastWall = Date.now();
       if (lastInput - lastTouch.current > 30_000) {
         lastTouch.current = lastInput;
         void api.touch().catch(() => void lock());
       }
     };
-    const onVisibility = () => { if (document.hidden) void lock(); else void refresh(); };
-    const interval = window.setInterval(() => { if (Date.now() - lastInput >= timeout) void lock(); }, 5000);
+    const resume = () => {
+      const wallGap = Date.now() - lastWall;
+      if (performance.now() - lastInput >= timeout || wallGap >= timeout || wallGap < -1000) {
+        void lock();
+        return;
+      }
+      setGoals([]);
+      setStatus((current) => current ? { ...current, unlocked: false } : current);
+      void refresh();
+    };
+    const onVisibility = () => {
+      if (document.hidden) void lock();
+      else resume();
+    };
+    const onFocus = () => { if (!document.hidden) resume(); };
+    const interval = window.setInterval(() => {
+      const wallGap = Date.now() - lastWall;
+      if (performance.now() - lastInput >= timeout || wallGap >= timeout || wallGap < -1000) void lock();
+    }, 5000);
     for (const event of ['keydown', 'pointerdown', 'pointermove', 'touchstart']) window.addEventListener(event, onInput, { passive: true });
     document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onFocus);
     return () => {
       window.clearInterval(interval);
       for (const event of ['keydown', 'pointerdown', 'pointermove', 'touchstart']) window.removeEventListener(event, onInput);
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onFocus);
     };
   }, [status?.unlocked, status?.autoLockMinutes, lock, refresh]);
 
@@ -78,6 +99,7 @@ export default function App() {
   </section></main>;
   if (!status) return <main className="auth-screen"><p role="status">正在打开本地空间…</p></main>;
   if (!status.initialized) return <Onboarding onCreated={(next) => { setStatus(next); void refresh(); }} />;
+  if (status.recoveryRequired) return <RecoveryScreen onRestored={(next) => { setGoals([]); setStatus(next); void refresh(); }} />;
   if (anonymousSos) return <AnonymousSos standalone onLeave={() => setAnonymousSos(false)} />;
   if (!status.unlocked) return <LockScreen onUnlocked={(next) => { setStatus(next); void refresh(); }} onSos={() => setAnonymousSos(true)} />;
 
@@ -89,6 +111,7 @@ function LockScreen({ onUnlocked, onSos }: { onUnlocked: (status: VaultStatus) =
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [showHelp, setShowHelp] = useState(false);
+  const [showRestore, setShowRestore] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -97,6 +120,7 @@ function LockScreen({ onUnlocked, onSos }: { onUnlocked: (status: VaultStatus) =
     catch (cause) { setError(errorText(cause)); setPassword(''); }
     finally { setBusy(false); }
   }
+  if (showRestore) return <RecoveryScreen onRestored={onUnlocked} onCancel={() => setShowRestore(false)} />;
   return <main className="auth-screen"><form className="auth-panel lock-panel" onSubmit={submit}>
     <span className="brandmark" aria-hidden="true" /><h1>欢迎回来。</h1>
     <p>你的本地空间已锁定。输入主密码后继续。</p>
@@ -104,8 +128,39 @@ function LockScreen({ onUnlocked, onSos }: { onUnlocked: (status: VaultStatus) =
     {error && <p role="alert" className="message error">{error}</p>}
     <div className="form-actions"><button className="button primary" disabled={busy || !password}>{busy ? '正在验证…' : '解锁'}</button><button type="button" className="button ghost" onClick={onSos}>无需记录的 SOS</button></div>
     <button type="button" className="text-button" aria-expanded={showHelp} onClick={() => setShowHelp(!showHelp)}>忘记密码？</button>
+    <button type="button" className="text-button" onClick={() => setShowRestore(true)}>从加密备份恢复</button>
     {showHelp && <p className="small muted">没有服务端恢复。遗失主密码后，旧数据库和备份无法解锁。新建空库会舍弃旧数据，请先保留原始文件以便将来想起密码时重试。</p>}
   </form></main>;
+}
+
+function RecoveryScreen({ onRestored, onCancel }: { onRestored: (status: VaultStatus) => void; onCancel?: () => void }) {
+  const [path, setPath] = useState('');
+  const [password, setPassword] = useState('');
+  const [preview, setPreview] = useState<RestorePreview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function choose() {
+    try {
+      const chosen = await open({ multiple: false, directory: false, filters: [{ name: '净界加密备份', extensions: ['mgb'] }] });
+      if (typeof chosen === 'string') { setPath(chosen); setPreview(null); }
+    } catch (cause) { setError(errorText(cause)); }
+  }
+  async function run(action: () => Promise<void>) {
+    setBusy(true); setError('');
+    try { await action(); } catch (cause) { setError(errorText(cause)); }
+    finally { setBusy(false); }
+  }
+  return <main className="auth-screen"><section className="auth-panel lock-panel">
+    <h1>从加密备份恢复</h1>
+    <p>可在未解锁、全新安装或当前库损坏时恢复。先用备份密码验证文件；替换前会保留当前密文库与密钥清单的私有副本。</p>
+    <button className="button ghost" disabled={busy} onClick={() => void choose()}>选择 .mgb 文件</button>
+    {path && <><p className="small path">{path}</p><label className="field">备份密码<input type="password" autoComplete="off" value={password} onChange={(e) => { setPassword(e.target.value); setPreview(null); }} /></label>
+      <button className="button ghost" disabled={busy || !password} onClick={() => void run(async () => { setPreview(await api.previewRestore(path, password)); })}>验证并预览</button></>}
+    {preview && <div className="quiet-box"><p>备份创建于：{new Date(preview.createdAt * 1000).toLocaleString('zh-CN')}</p><p>包含目标：{preview.goalCount} 项</p>
+      <button className="button primary" disabled={busy} onClick={() => void run(async () => { const next = await api.restore(path, password); setPassword(''); onRestored(next); })}>确认恢复</button></div>}
+    {onCancel && <button className="button ghost" disabled={busy} onClick={onCancel}>返回解锁</button>}
+    {error && <p className="message error" role="alert">{error}</p>}
+  </section></main>;
 }
 
 type ShellProps = {

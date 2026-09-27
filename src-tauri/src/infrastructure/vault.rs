@@ -58,6 +58,7 @@ pub struct VaultStatus {
     pub initialized: bool,
     pub unlocked: bool,
     pub auto_lock_minutes: u32,
+    pub recovery_required: bool,
 }
 
 pub struct VaultService {
@@ -87,17 +88,19 @@ impl VaultService {
     }
 
     pub fn status(&mut self) -> VaultResult<VaultStatus> {
-        let initialized = self.manifest_path().exists();
-        let minutes = if initialized {
-            self.read_manifest()?.auto_lock_minutes
-        } else {
-            10
-        };
+        let manifest_exists = self.manifest_path().exists();
+        let db_exists = self.db_path().exists();
+        let initialized = manifest_exists || db_exists;
+        let manifest = if manifest_exists { self.read_manifest().ok() } else { None };
+        let recovery_required = initialized && (!manifest_exists || !db_exists || manifest.is_none());
+        let minutes = manifest.map(|m| m.auto_lock_minutes).unwrap_or(10);
         self.expire(minutes);
+        if recovery_required { self.data_key = None; self.last_activity = None; }
         Ok(VaultStatus {
             initialized,
-            unlocked: self.data_key.is_some(),
+            unlocked: self.data_key.is_some() && !recovery_required,
             auto_lock_minutes: minutes,
+            recovery_required,
         })
     }
 
@@ -164,7 +167,7 @@ impl VaultService {
             )
         })();
         if result.is_err() {
-            let _ = fs::remove_file(&db_path);
+            if !self.manifest_path().exists() { let _ = fs::remove_file(&db_path); }
             return result.map(|_| unreachable!());
         }
         self.data_key = Some(data_key);
@@ -189,6 +192,7 @@ impl VaultService {
             }
         };
         let db = open_db(&self.db_path(), &key, false)?;
+        verify_db(&db)?;
         drop(db);
         self.data_key = Some(key);
         self.last_activity = Some(Instant::now());
@@ -275,9 +279,8 @@ impl VaultService {
     }
 
     pub fn preview_restore(&mut self, path: &Path, password: &str) -> VaultResult<RestorePreview> {
-        let _current_key = self.require_key()?;
         let (file, key, database) = load_backup(path, password)?;
-        let count = self.verify_candidate(&database, &key)?;
+        let (count, _) = self.verify_candidate(&database, &key)?;
         Ok(RestorePreview {
             goal_count: count,
             created_at: file.manifest.created_at,
@@ -285,9 +288,10 @@ impl VaultService {
     }
 
     pub fn restore_backup(&mut self, path: &Path, password: &str) -> VaultResult<VaultStatus> {
-        let _current_key = self.require_key()?;
         let (file, key, database) = load_backup(path, password)?;
-        self.verify_candidate(&database, &key)?;
+        let (_, database) = self.verify_candidate(&database, &key)?;
+
+        ensure_private_dir(&self.data_dir)?;
 
         let suffix = hex::encode(random_array::<8>()?);
         let staged_db = self.data_dir.join(format!(".restore-{suffix}.db"));
@@ -301,35 +305,39 @@ impl VaultService {
                 &staged_manifest,
                 &serde_json::to_vec(&file.manifest).map_err(|_| VaultError::io())?,
             )?;
-            fs::rename(self.db_path(), &old_db).map_err(|_| VaultError::io())?;
-            if fs::rename(self.manifest_path(), &old_manifest).is_err() {
-                let _ = fs::rename(&old_db, self.db_path());
+            let had_db = self.db_path().exists();
+            let had_manifest = self.manifest_path().exists();
+            if had_db { fs::rename(self.db_path(), &old_db).map_err(|_| VaultError::io())?; }
+            if had_manifest && fs::rename(self.manifest_path(), &old_manifest).is_err() {
+                if had_db { let _ = fs::rename(&old_db, self.db_path()); }
                 return Err(VaultError::io());
             }
             if fs::rename(&staged_db, self.db_path()).is_err() {
-                let _ = fs::rename(&old_db, self.db_path());
-                let _ = fs::rename(&old_manifest, self.manifest_path());
+                if had_db { let _ = fs::rename(&old_db, self.db_path()); }
+                if had_manifest { let _ = fs::rename(&old_manifest, self.manifest_path()); }
                 return Err(VaultError::io());
             }
             if fs::rename(&staged_manifest, self.manifest_path()).is_err() {
                 let _ = fs::remove_file(self.db_path());
-                let _ = fs::rename(&old_db, self.db_path());
-                let _ = fs::rename(&old_manifest, self.manifest_path());
+                if had_db { let _ = fs::rename(&old_db, self.db_path()); }
+                if had_manifest { let _ = fs::rename(&old_manifest, self.manifest_path()); }
                 return Err(VaultError::io());
             }
+            let _ = File::open(&self.data_dir).and_then(|dir| dir.sync_all());
             Ok(())
         })();
         let _ = fs::remove_file(&staged_db);
         let _ = fs::remove_file(&staged_manifest);
         result?;
-        let _ = fs::remove_file(old_db);
-        let _ = fs::remove_file(old_manifest);
+        // The previous encrypted SQLCipher database and its wrapped-key manifest
+        // remain together under the same rollback suffix for manual reversal.
         self.data_key = Some(key);
         self.last_activity = Some(Instant::now());
         self.status()
     }
 
-    fn verify_candidate(&self, database: &[u8], key: &[u8; 32]) -> VaultResult<u64> {
+    fn verify_candidate(&self, database: &[u8], key: &[u8; 32]) -> VaultResult<(u64, Vec<u8>)> {
+        ensure_private_dir(&self.data_dir)?;
         let path = self
             .data_dir
             .join(format!(".verify-{}.db", hex::encode(random_array::<8>()?)));
@@ -338,9 +346,11 @@ impl VaultService {
             write_existing(&path, database)?;
             let db = open_db(&path, key, false)?;
             verify_db(&db)?;
-            db.query_row("SELECT COUNT(*) FROM goal", [], |row| row.get::<_, i64>(0))
+            let count = db.query_row("SELECT COUNT(*) FROM goal", [], |row| row.get::<_, i64>(0))
                 .map(|count| count as u64)
-                .map_err(|_| VaultError::crypto())
+                .map_err(|_| VaultError::crypto())?;
+            drop(db);
+            Ok((count, fs::read(&path).map_err(|_| VaultError::io())?))
         })();
         let _ = fs::remove_file(path);
         result
@@ -479,17 +489,26 @@ fn open_db(path: &Path, key: &[u8; 32], create: bool) -> VaultResult<Connection>
     }
     db.execute_batch("PRAGMA cipher_memory_security = ON; PRAGMA foreign_keys = ON; PRAGMA temp_store = MEMORY; PRAGMA journal_mode = DELETE; PRAGMA synchronous = FULL;").map_err(|_| VaultError::crypto())?;
     if create {
-        db.execute_batch(include_str!("../../migrations/0001_initial.sql"))
-            .map_err(|_| VaultError::io())?;
-    } else {
-        let schema: u32 = db
-            .query_row("SELECT MAX(version) FROM schema_migration", [], |row| {
-                row.get(0)
-            })
-            .map_err(|_| VaultError::crypto())?;
-        if schema != 1 {
-            return Err(VaultError::unsupported());
+        db.execute_batch("BEGIN IMMEDIATE;").map_err(|_| VaultError::io())?;
+        if db.execute_batch(include_str!("../../migrations/0001_initial.sql")).is_err() {
+            let _ = db.execute_batch("ROLLBACK;");
+            return Err(VaultError::io());
         }
+        db.execute_batch("COMMIT;").map_err(|_| VaultError::io())?;
+    } else { verify_db(&db)?; }
+    let schema: u32 = db.query_row("SELECT MAX(version) FROM schema_migration", [], |row| row.get(0))
+        .map_err(|_| VaultError::crypto())?;
+    match schema {
+        1 => {
+            db.execute_batch("BEGIN IMMEDIATE;").map_err(|_| VaultError::io())?;
+            if db.execute_batch(include_str!("../../migrations/0002_daily_loop.sql")).is_err() {
+                let _ = db.execute_batch("ROLLBACK;");
+                return Err(VaultError::io());
+            }
+            db.execute_batch("COMMIT;").map_err(|_| VaultError::io())?;
+        }
+        2 => (),
+        _ => return Err(VaultError::unsupported()),
     }
     Ok(db)
 }
@@ -712,5 +731,53 @@ mod tests {
         fs::write(&bad, bytes).unwrap();
         assert!(vault.restore_backup(&bad, PASSWORD).is_err());
         assert_eq!(vault.list_goals().unwrap(), vec!["current goal"]);
+    }
+
+    #[test]
+    fn v1_backup_restores_without_current_vault_and_preserves_orphans() {
+        let home = tempfile::tempdir().unwrap();
+        let mut old = VaultService::new(home.path().join("old"));
+        old.initialize(PASSWORD, &["old identity".into()]).unwrap();
+        let key = old.require_key().unwrap();
+        let db = open_db(&old.db_path(), &key, false).unwrap();
+        db.execute_batch("BEGIN; DROP TABLE journal_entry; DROP TABLE urge_session; DROP TABLE action_completion; DROP TABLE plan_action; DROP TABLE event_trigger; DROP TABLE behavior_event; DELETE FROM schema_migration WHERE version=2; COMMIT;").unwrap();
+        drop(db);
+        let v1 = create_backup_v1_for_test(&mut old, PASSWORD);
+        assert!(v1.is_ok());
+        let backup = v1.unwrap();
+        old.lock().unwrap();
+
+        let mut fresh = VaultService::new(home.path().join("fresh"));
+        assert!(!fresh.status().unwrap().initialized);
+        assert!(fresh.preview_restore(&backup, OTHER_PASSWORD).is_err());
+        assert_eq!(fresh.preview_restore(&backup, PASSWORD).unwrap().goal_count, 1);
+        fresh.restore_backup(&backup, PASSWORD).unwrap();
+        assert_eq!(fresh.list_goals().unwrap(), vec!["old identity"]);
+        assert_eq!(open_db(&fresh.db_path(), &fresh.require_key().unwrap(), false).unwrap().query_row("SELECT MAX(version) FROM schema_migration", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
+
+        let mut orphan = VaultService::new(home.path().join("orphan"));
+        ensure_private_dir(&orphan.data_dir).unwrap();
+        fs::copy(old.manifest_path(), orphan.manifest_path()).unwrap();
+        assert!(orphan.status().unwrap().recovery_required);
+        assert!(orphan.initialize(PASSWORD, &[]).is_err());
+        orphan.restore_backup(&backup, PASSWORD).unwrap();
+        assert!(orphan.data_dir.read_dir().unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().starts_with(".rollback-") ));
+    }
+
+    #[cfg(test)]
+    fn create_backup_v1_for_test(vault: &mut VaultService, password: &str) -> VaultResult<PathBuf> {
+        // Save the v1 image without opening it through the migration path.
+        let key = vault.require_key()?;
+        let manifest = vault.read_manifest()?;
+        let confirmed = unwrap_key(&manifest, password)?;
+        if *confirmed != *key { return Err(VaultError::crypto()); }
+        let database = fs::read(vault.db_path()).map_err(|_| VaultError::io())?;
+        let nonce = random_array::<24>()?;
+        let encrypted = XChaCha20Poly1305::new(Key::from_slice(&*key))
+            .encrypt(XNonce::from_slice(&nonce), Payload { msg: &database, aad: BACKUP_AAD })
+            .map_err(|_| VaultError::crypto())?;
+        let path = vault.data_dir.join("v1.mgb");
+        atomic_write(&path, &serde_json::to_vec(&BackupFile { format_version: 1, manifest, nonce: hex::encode(nonce), encrypted_database: STANDARD.encode(encrypted) }).unwrap())?;
+        Ok(path)
     }
 }
