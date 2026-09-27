@@ -5,6 +5,7 @@ import { api, errorText, type RestorePreview, type VaultStatus } from './api';
 import Onboarding from '../features/onboarding/Onboarding';
 import Today from '../features/today/Today';
 import AnonymousSos from '../features/sos/AnonymousSos';
+import Records from '../features/records/Records';
 
 const navigation = [
   ['today', '今日', '◒'], ['records', '记录', '▤'], ['sos', 'SOS', '◉'],
@@ -187,9 +188,9 @@ export function Shell({ status, goals, theme, setTheme, onLock, onStatus, onGoal
       <header className="topbar"><span>净界 / 私密空间</span><div><span className="top-date">{new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(new Date())}</span><button className="button small-button" onClick={onLock}>立即锁定</button></div></header>
       <div className="content">
         <Routes>
-          <Route path="/today" element={<Today goals={goals} onSos={() => navigate('/sos')} />} />
+          <Route path="/today" element={<Today goals={goals} onSos={() => navigate('/sos')} onRecord={() => navigate('/records')} />} />
           <Route path="/sos" element={<AnonymousSos onLeave={() => navigate('/today')} />} />
-          <Route path="/records" element={<ComingSoon title="记录，不用评判。" detail="事件记录、历史编辑和删除将在 M1 开放。当前不会保存或展示演示记录。" />} />
+          <Route path="/records" element={<Records />} />
           <Route path="/plan" element={<ComingSoon title="一个能调整的计划。" detail="目标编辑和小行动将在 M1 开放。引导时选择的目标已保存在加密数据库中。" goals={goals} />} />
           <Route path="/insights" element={<ComingSoon title="把规律看清一点。" detail="7/30 天统计将在 M1 从真实记录计算。当前没有样本，不作趋势判断。" />} />
           <Route path="/journal" element={<ComingSoon title="写给自己的几句话。" detail="日记将在 M1 开放；当前没有日记输入或明文暂存。" />} />

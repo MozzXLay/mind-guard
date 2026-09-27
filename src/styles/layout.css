@@ -56,6 +56,13 @@
 .breath.live { animation: breathe 8s ease-in-out infinite; }
 @keyframes breathe { 50% { transform: scale(1.08); } }
 .path { overflow-wrap: anywhere; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 20; background: #000b; display: grid; place-items: center; padding: 20px; }
+.record-editor { max-height: 94vh; overflow: auto; }
+.record-editor fieldset { border: 0; padding: 0; margin: 16px 0; }
+.record-editor .checkrow { display: inline-flex; min-width: 125px; border: 0; }
+.record-list { list-style: none; margin: 0; padding: 0; }
+.record-item { padding: 18px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.record-item p { margin: 8px 0; }
 @media (max-width: 1000px) {
   .sidebar { flex-basis: 74px; width: 74px; padding: 22px 8px; }
   .brand { margin: 5px auto 32px; }

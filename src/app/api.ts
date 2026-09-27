@@ -17,6 +17,11 @@ export type CommandError = {
   message: string;
 };
 
+export type BehaviorType = 'urge' | 'viewed_content' | 'stopped_viewing' | 'masturbation' | 'alternative_action';
+export type EventInput = { eventType: BehaviorType; occurredAtUtcMs: number; zoneId: string; intensity: number | null; note: string | null; triggers: string[] };
+export type BehaviorEvent = EventInput & { id: string; localDate: string; localHour: number };
+export type TodaySnapshot = { todayEvents: number; loggedDaysLast7: number; recent: BehaviorEvent[] };
+
 export const api = {
   status: () => invoke<VaultStatus>('vault_status'),
   initialize: (password: string, goals: string[]) => invoke<VaultStatus>('initialize_vault', { password, goals }),
@@ -28,6 +33,12 @@ export const api = {
   backup: (password: string) => invoke<string>('create_encrypted_backup', { password }),
   previewRestore: (path: string, password: string) => invoke<RestorePreview>('preview_restore', { path, password }),
   restore: (path: string, password: string) => invoke<VaultStatus>('restore_backup', { path, password }),
+  createEvent: (input: EventInput) => invoke<BehaviorEvent>('create_behavior_event', { input }),
+  event: (id: string) => invoke<BehaviorEvent>('get_behavior_event', { id }),
+  events: (from: string | null, to: string | null, eventType: BehaviorType | null, limit = 50, offset = 0) => invoke<BehaviorEvent[]>('list_behavior_events', { from, to, eventType, limit, offset }),
+  updateEvent: (id: string, input: EventInput) => invoke<BehaviorEvent>('update_behavior_event', { id, input }),
+  deleteEvent: (id: string) => invoke<void>('delete_behavior_event', { id }),
+  today: (today: string, from: string) => invoke<TodaySnapshot>('today_snapshot', { today, from }),
 };
 
 export function errorText(error: unknown): string {

@@ -38,6 +38,12 @@ pub fn run() {
             commands::create_encrypted_backup,
             commands::preview_restore,
             commands::restore_backup,
+            commands::create_behavior_event,
+            commands::get_behavior_event,
+            commands::list_behavior_events,
+            commands::update_behavior_event,
+            commands::delete_behavior_event,
+            commands::today_snapshot,
         ])
         .run(tauri::generate_context!())
         .expect("Tauri application could not start");

@@ -28,6 +28,10 @@ const KEY_AAD: &[u8] = b"mindguard:data-key:v1";
 const BACKUP_AAD: &[u8] = b"mindguard:backup:v1";
 const MAX_BACKUP_BYTES: u64 = 128 * 1024 * 1024;
 
+mod daily;
+mod zone;
+pub use daily::{BehaviorEvent, EventInput, TodaySnapshot};
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Manifest {

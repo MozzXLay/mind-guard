@@ -7,7 +7,7 @@ use zeroize::Zeroize;
 use crate::{
     application::AppState,
     domain::{VaultError, VaultResult},
-    infrastructure::vault::VaultStatus,
+    infrastructure::vault::{BehaviorEvent, EventInput, TodaySnapshot, VaultStatus},
 };
 
 fn with_vault<T>(
@@ -106,4 +106,34 @@ pub fn restore_backup(
     });
     password.zeroize();
     result
+}
+
+#[tauri::command(async)]
+pub fn create_behavior_event(state: State<'_, AppState>, input: EventInput) -> VaultResult<BehaviorEvent> {
+    with_vault(state, |v| v.create_event(input))
+}
+
+#[tauri::command(async)]
+pub fn get_behavior_event(state: State<'_, AppState>, id: String) -> VaultResult<BehaviorEvent> {
+    with_vault(state, |v| v.event(&id))
+}
+
+#[tauri::command(async)]
+pub fn list_behavior_events(state: State<'_, AppState>, from: Option<String>, to: Option<String>, event_type: Option<String>, limit: u32, offset: u32) -> VaultResult<Vec<BehaviorEvent>> {
+    with_vault(state, |v| v.list_events(from, to, event_type, limit, offset))
+}
+
+#[tauri::command(async)]
+pub fn update_behavior_event(state: State<'_, AppState>, id: String, input: EventInput) -> VaultResult<BehaviorEvent> {
+    with_vault(state, |v| v.update_event(&id, input))
+}
+
+#[tauri::command(async)]
+pub fn delete_behavior_event(state: State<'_, AppState>, id: String) -> VaultResult<()> {
+    with_vault(state, |v| v.delete_event(&id))
+}
+
+#[tauri::command(async)]
+pub fn today_snapshot(state: State<'_, AppState>, today: String, from: String) -> VaultResult<TodaySnapshot> {
+    with_vault(state, |v| v.today_snapshot(&today, &from))
 }
