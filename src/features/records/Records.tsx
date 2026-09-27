@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api, errorText, type BehaviorEvent, type BehaviorType, type EventInput } from '../../app/api';
+import { matchingInstants, resolveRecordTime, utcOffsetLabel, wallTime } from './recordTime';
 
 export const eventLabels: Record<BehaviorType, string> = { urge: '出现冲动', viewed_content: '浏览内容', stopped_viewing: '主动停止浏览', masturbation: '自慰', alternative_action: '替代行动' };
 const triggerLabels: Record<string, string> = { boredom: '无聊', stress: '压力', loneliness: '孤独', anxiety: '焦虑', fatigue: '疲劳', sleep_loss: '睡眠不足', desire: '性欲', habit: '习惯', other: '其他' };
@@ -8,7 +9,6 @@ const types = Object.keys(eventLabels) as BehaviorType[];
 const localDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 export function fromDays(days: number) { const date = new Date(); date.setDate(date.getDate() - days + 1); return localDate(date); }
 export function todayDate() { return localDate(new Date()); }
-function inputTime(date: Date) { return `${localDate(date)}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`; }
 export function eventWhen(event: BehaviorEvent) { return new Intl.DateTimeFormat('zh-CN', { timeZone: event.zoneId, dateStyle: 'medium', timeStyle: 'short' }).format(new Date(event.occurredAtUtcMs)); }
 
 export default function Records() {
@@ -44,16 +44,23 @@ export default function Records() {
 }
 
 function EventEditor({ original, onClose, onSaved }: { original: BehaviorEvent | null; onClose: () => void; onSaved: (id: string) => Promise<void> }) {
-  const initialTime = original ? inputTime(new Date(original.occurredAtUtcMs)) : inputTime(new Date());
+  const [deviceZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+  const [mode, setMode] = useState<'original' | 'device'>(original ? 'original' : 'device');
+  const editZone = mode === 'original' && original ? original.zoneId : deviceZone;
+  const [createdAt] = useState(() => Date.now());
+  const initialTime = wallTime(original?.occurredAtUtcMs ?? createdAt, editZone);
   const [eventType, setEventType] = useState<BehaviorType>(original?.eventType ?? 'urge');
   const [time, setTime] = useState(initialTime);
+  const [chosenInstant, setChosenInstant] = useState('');
   const [intensity, setIntensity] = useState(original?.intensity?.toString() ?? '');
   const [triggers, setTriggers] = useState<string[]>(original?.triggers ?? []);
   const [note, setNote] = useState(original?.note ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const dialog = useRef<HTMLFormElement>(null);
-  const dirty = eventType !== (original?.eventType ?? 'urge') || time !== initialTime || intensity !== (original?.intensity?.toString() ?? '') || note !== (original?.note ?? '') || [...triggers].sort().join(',') !== [...(original?.triggers ?? [])].sort().join(',');
+  const changedTime = time !== initialTime;
+  const candidates = original && !changedTime ? [] : matchingInstants(time, editZone);
+  const dirty = eventType !== (original?.eventType ?? 'urge') || changedTime || intensity !== (original?.intensity?.toString() ?? '') || note !== (original?.note ?? '') || [...triggers].sort().join(',') !== [...(original?.triggers ?? [])].sort().join(',');
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && (!dirty || window.confirm('放弃未保存的修改？'))) onClose();
@@ -68,18 +75,23 @@ function EventEditor({ original, onClose, onSaved }: { original: BehaviorEvent |
   }, [onClose, dirty]);
   async function save(event: FormEvent) {
     event.preventDefault();
-    const parsed = new Date(time).getTime();
-    if (!Number.isFinite(parsed)) { setError('请选择有效的发生时间。'); return; }
-    const unchangedTime = original && time === initialTime;
-    const input: EventInput = { eventType, occurredAtUtcMs: unchangedTime ? original.occurredAtUtcMs : parsed, zoneId: unchangedTime ? original.zoneId : Intl.DateTimeFormat().resolvedOptions().timeZone, intensity: intensity === '' ? null : Number(intensity), triggers, note: note || null };
+    let occurrence;
+    try { occurrence = resolveRecordTime(original, time, editZone, chosenInstant); }
+    catch (cause) { setError(errorText(cause)); return; }
+    const input: EventInput = { eventType, ...occurrence, intensity: intensity === '' ? null : Number(intensity), triggers, note: note || null };
     setBusy(true); setError('');
     try { const saved = original ? await api.updateEvent(original.id, input) : await api.createEvent(input); await onSaved(saved.id); }
     catch (cause) { setError(errorText(cause)); } finally { setBusy(false); }
   }
   return <div className="modal-backdrop"><form ref={dialog} className="auth-panel record-editor" onSubmit={(e) => void save(e)} role="dialog" aria-modal="true" aria-label={original ? '编辑记录' : '新建记录'}>
-    <h2>{original ? '编辑记录' : '新建记录'}</h2><p className="small muted">时间按当前系统时区编辑；未修改时间时保留原记录时区。</p>
+    <h2>{original ? '编辑记录' : '新建记录'}</h2>
+    {original && <p className="small muted">原记录：{wallTime(original.occurredAtUtcMs, original.zoneId).replace('T', ' ')}（{original.zoneId}，{utcOffsetLabel(original.occurredAtUtcMs, original.zoneId)}）。</p>}
+    <p className="small muted">设备时区：{deviceZone}。未修改发生时间时，保存会保留原时间戳和原时区；修改后按下方选定时区保存。</p>
+    {original && <label className="field">修改时间所用时区<select value={mode} onChange={(e) => { const next = e.target.value as 'original' | 'device'; setMode(next); setTime(wallTime(original.occurredAtUtcMs, next === 'original' ? original.zoneId : deviceZone)); setChosenInstant(''); }}><option value="original">原记录时区 · {original.zoneId}</option><option value="device">设备时区 · {deviceZone}</option></select></label>}
     <label className="field">发生了什么？<select autoFocus value={eventType} onChange={(e) => setEventType(e.target.value as BehaviorType)}>{types.map((type) => <option key={type} value={type}>{eventLabels[type]}</option>)}</select></label>
-    <label className="field">发生时间<input type="datetime-local" required value={time} onChange={(e) => setTime(e.target.value)} /></label>
+    <label className="field">发生时间（{editZone}）<input type="datetime-local" required value={time} onChange={(e) => { setTime(e.target.value); setChosenInstant(''); }} /></label>
+    {candidates.length === 0 && (!original || changedTime) && <p className="small message error">此时区没有这个当地时刻；请调整时间。</p>}
+    {candidates.length > 1 && <label className="field">这个当地时刻在夏令时回拨时出现两次，请选择实际偏移<select value={chosenInstant} onChange={(e) => setChosenInstant(e.target.value)} required><option value="">请选择</option>{candidates.map((instant) => <option key={instant} value={instant}>{utcOffsetLabel(instant, editZone)} · {new Date(instant).toISOString()} UTC</option>)}</select></label>}
     <label className="field">强度 0–10（可留空）<select value={intensity} onChange={(e) => setIntensity(e.target.value)}><option value="">不记录</option>{Array.from({ length: 11 }, (_, i) => <option key={i} value={i}>{i}</option>)}</select></label>
     <fieldset className="field"><legend>触发因素（可多选）</legend>{Object.entries(triggerLabels).map(([code, label]) => <label className="checkrow" key={code}><input type="checkbox" checked={triggers.includes(code)} onChange={() => setTriggers((old) => old.includes(code) ? old.filter((x) => x !== code) : [...old, code])} />{label}</label>)}</fieldset>
     <label className="field">备注（可留空，最多 2000 字）<textarea maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} /></label>
