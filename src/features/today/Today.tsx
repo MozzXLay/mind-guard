@@ -27,7 +27,7 @@ export default function Today({ onSos, onRecord, onPlan }: Props) {
       <section className="card">
         <div className="row-between"><h2>近 7 天概览</h2><span className="pill">真实记录</span></div>
         <div className="empty-number">{snapshot?.loggedDaysLast7 ?? '…'} / 7</div>
-        <p className="muted">有事件记录的日子。今天 {snapshot?.todayEvents ?? '…'} 条事件。</p>
+        <p className="muted">有事件、行动完成或已保存 SOS 的日子。今天 {snapshot?.todayEvents ?? '…'} 条事件。</p>
       </section>
     </div>
     <div className="card-grid below">

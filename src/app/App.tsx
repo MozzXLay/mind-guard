@@ -8,6 +8,9 @@ import AnonymousSos from '../features/sos/AnonymousSos';
 import Records from '../features/records/Records';
 import Plan from '../features/plan/Plan';
 import SavedSos from '../features/sos/SavedSos';
+import Journal from '../features/journal/Journal';
+import Insights from '../features/insights/Insights';
+import { idleExpired } from './idle';
 
 const navigation = [
   ['today', '今日', '◒'], ['records', '记录', '▤'], ['sos', 'SOS', '◉'],
@@ -28,25 +31,35 @@ export default function App() {
   const [status, setStatus] = useState<VaultStatus | null>(null);
   const [startupError, setStartupError] = useState('');
   const [anonymousSos, setAnonymousSos] = useState(false);
+  const [freshRestore, setFreshRestore] = useState(false);
   const [theme, setTheme] = useTheme();
   const lastTouch = useRef(performance.now());
+  const refreshSeq = useRef(0);
+  const locking = useRef(false);
 
   const refresh = useCallback(async () => {
+    if (locking.current) return;
+    const seq = ++refreshSeq.current;
     try {
       const next = await api.status();
+      if (seq !== refreshSeq.current || locking.current) return;
       setStatus(next);
       setStartupError('');
     } catch (cause) {
-      setStartupError(errorText(cause));
+      if (seq === refreshSeq.current) setStartupError(errorText(cause));
     }
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
   const lock = useCallback(async () => {
+    if (locking.current) return;
+    locking.current = true;
+    ++refreshSeq.current;
     setStatus((current) => current ? { ...current, unlocked: false } : current);
     try { setStatus(await api.lock()); }
     catch (cause) { setStartupError(errorText(cause)); }
+    finally { locking.current = false; }
   }, []);
 
   useEffect(() => {
@@ -63,8 +76,7 @@ export default function App() {
       }
     };
     const resume = () => {
-      const wallGap = Date.now() - lastWall;
-      if (performance.now() - lastInput >= timeout || wallGap >= timeout || wallGap < -1000) {
+      if (idleExpired(lastInput, lastWall, performance.now(), Date.now(), timeout)) {
         void lock();
         return;
       }
@@ -77,8 +89,7 @@ export default function App() {
     };
     const onFocus = () => { if (!document.hidden) resume(); };
     const interval = window.setInterval(() => {
-      const wallGap = Date.now() - lastWall;
-      if (performance.now() - lastInput >= timeout || wallGap >= timeout || wallGap < -1000) void lock();
+      if (idleExpired(lastInput, lastWall, performance.now(), Date.now(), timeout)) void lock();
     }, 5000);
     for (const event of ['keydown', 'pointerdown', 'pointermove', 'touchstart']) window.addEventListener(event, onInput, { passive: true });
     document.addEventListener('visibilitychange', onVisibility);
@@ -96,7 +107,9 @@ export default function App() {
     <button className="button primary" onClick={() => void refresh()}>重试</button>
   </section></main>;
   if (!status) return <main className="auth-screen"><p role="status">正在打开本地空间…</p></main>;
-  if (!status.initialized) return <Onboarding onCreated={(next) => { setStatus(next); void refresh(); }} />;
+  if (!status.initialized) return freshRestore
+    ? <RecoveryScreen onRestored={(next) => { setFreshRestore(false); setStatus(next); void refresh(); }} onCancel={() => setFreshRestore(false)} />
+    : <Onboarding onCreated={(next) => { setStatus(next); void refresh(); }} onRestore={() => setFreshRestore(true)} />;
   if (status.recoveryRequired) return <RecoveryScreen onRestored={(next) => { setStatus(next); void refresh(); }} />;
   if (anonymousSos) return <AnonymousSos standalone onLeave={() => setAnonymousSos(false)} />;
   if (!status.unlocked) return <LockScreen onUnlocked={(next) => { setStatus(next); void refresh(); }} onSos={() => setAnonymousSos(true)} />;
@@ -189,8 +202,8 @@ export function Shell({ status, theme, setTheme, onLock, onStatus }: ShellProps)
           <Route path="/sos" element={<SavedSos onLeave={() => navigate('/today')} />} />
           <Route path="/records" element={<Records />} />
           <Route path="/plan" element={<Plan />} />
-          <Route path="/insights" element={<ComingSoon title="把规律看清一点。" detail="7/30 天统计将在 M1 从真实记录计算。当前没有样本，不作趋势判断。" />} />
-          <Route path="/journal" element={<ComingSoon title="写给自己的几句话。" detail="日记将在 M1 开放；当前没有日记输入或明文暂存。" />} />
+          <Route path="/insights" element={<Insights />} />
+          <Route path="/journal" element={<Journal />} />
           <Route path="/blocker" element={<ComingSoon title="降低访问的便利性。" detail="浏览器扩展属于 M2。Firefox 与 Chromium 均未连接，当前没有规则生效。" />} />
           <Route path="/settings" element={<Settings status={status} theme={theme} setTheme={setTheme} onStatus={onStatus} />} />
           <Route path="*" element={<Navigate to="/today" replace />} />
@@ -241,7 +254,7 @@ function Settings({ status, theme, setTheme, onStatus }: {
         {backupPath && <p className="small path" role="status">文件位置：{backupPath}</p>}
       </section>
     </div>
-    <section className="card below"><h2>恢复加密备份</h2><p className="muted">先验证备份和密码并预览，再替换当前数据。请先保存当前库的备份。</p>
+    <section className="card below"><h2>恢复加密备份</h2><p className="muted">先验证备份和密码并预览，再替换当前数据。替换前会在应用私有目录保留当前密文库与密钥清单，以便手工撤销。</p>
       <div className="form-actions left"><button className="button ghost" disabled={busy} onClick={() => void run(chooseBackup)}>选择 .mgb 文件</button>{restorePath && <span className="small path">{restorePath}</span>}</div>
       {restorePath && <><label className="field">备份密码<input type="password" autoComplete="off" value={restorePassword} onChange={(e) => { setRestorePassword(e.target.value); setPreview(null); }} /></label>
         <div className="form-actions left"><button className="button ghost" disabled={busy || !restorePassword} onClick={() => void run(async () => { setPreview(await api.previewRestore(restorePath, restorePassword)); setMessage('备份验证通过，可确认恢复。'); })}>验证并预览</button></div>
@@ -250,7 +263,7 @@ function Settings({ status, theme, setTheme, onStatus }: {
         <button className="button primary" disabled={busy} onClick={() => void run(async () => { const next = await api.restore(restorePath, restorePassword); onStatus(next); setRestorePassword(''); setPreview(null); setMessage('备份已恢复。'); })}>确认替换当前数据</button>
       </div>}
     </section>
-    <p className="small muted below">无账号 · 无云同步 · 无遥测。记录、日记和浏览器扩展尚未开放。</p>
+    <p className="small muted below">无账号 · 无云同步 · 无遥测。浏览器扩展与屏蔽属于 M2，当前未开放。</p>
     {message && <p role="status" className="message">{message}</p>}
     {error && <p role="alert" className="message error">{error}</p>}
   </>;

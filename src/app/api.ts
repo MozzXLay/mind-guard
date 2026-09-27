@@ -26,6 +26,9 @@ export type PlanAction = { id: string; goalId: string; title: string; enabled: b
 export type SosOutcome = 'completed' | 'skipped' | 'interrupted';
 export type SosInput = { startedAtUtcMs: number; endedAtUtcMs: number; zoneId: string; initialIntensity: number | null; finalIntensity: number | null; outcome: SosOutcome; action: string | null };
 export type SosSession = Omit<SosInput, 'zoneId'> & { id: string; localDate: string };
+export type JournalSummary = { id: string; excerpt: string; createdAt: number; updatedAt: number };
+export type JournalEntry = { id: string; content: string; createdAt: number; updatedAt: number };
+export type Insights = { from: string; to: string; days: number; loggedDays: number; eventTotal: number; eventCounts: { name: BehaviorType; count: number }[]; sosCount: number; actionCount: number; intensitySamples: number; averageIntensity: number | null; hourlyDistribution: { hour: number; count: number }[]; triggerCounts: { name: string; count: number }[] };
 
 export const api = {
   status: () => invoke<VaultStatus>('vault_status'),
@@ -51,6 +54,11 @@ export const api = {
   completeAction: (actionId: string, date: string, done: boolean) => invoke<void>('set_action_completion', { actionId, date, done }),
   saveSos: (input: SosInput) => invoke<SosSession>('save_sos_session', { input }),
   sosSessions: (limit = 20) => invoke<SosSession[]>('list_sos_sessions', { limit }),
+  journal: (limit = 50, offset = 0) => invoke<JournalSummary[]>('list_journal_entries', { limit, offset }),
+  journalEntry: (id: string) => invoke<JournalEntry>('get_journal_entry', { id }),
+  saveJournal: (id: string | null, content: string) => invoke<JournalEntry>('save_journal_entry', { id, content }),
+  deleteJournal: (id: string) => invoke<void>('delete_journal_entry', { id }),
+  insights: (to: string, days: 7 | 30) => invoke<Insights>('get_insights', { to, days }),
 };
 
 export function errorText(error: unknown): string {

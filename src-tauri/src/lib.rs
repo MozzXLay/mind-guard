@@ -51,6 +51,11 @@ pub fn run() {
             commands::set_action_completion,
             commands::save_sos_session,
             commands::list_sos_sessions,
+            commands::list_journal_entries,
+            commands::get_journal_entry,
+            commands::save_journal_entry,
+            commands::delete_journal_entry,
+            commands::get_insights,
         ])
         .run(tauri::generate_context!())
         .expect("Tauri application could not start");
