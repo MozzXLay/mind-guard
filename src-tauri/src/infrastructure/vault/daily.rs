@@ -866,6 +866,29 @@ mod tests {
     }
 
     #[test]
+    fn inactive_actions_allow_undo_but_never_new_completion() {
+        let root = tempfile::tempdir().unwrap();
+        let mut vault = VaultService::new(root.path().join("vault"));
+        vault.initialize("a long unique test password 2026", &[]).unwrap();
+        let goal = vault.save_goal(None, "goal".into(), "active".into()).unwrap();
+        vault.save_action(None, goal.id.clone(), "action".into(), true).unwrap();
+        let action = vault.list_actions("2026-09-27").unwrap().remove(0);
+        vault.set_action_completion(&action.id, "2026-09-27", true).unwrap();
+        vault.save_goal(Some(goal.id.clone()), "goal".into(), "paused".into()).unwrap();
+        assert!(vault.list_actions("2026-09-27").unwrap()[0].completed);
+        assert_eq!(vault.insights("2026-09-27", 7).unwrap().action_count, 1);
+        vault.set_action_completion(&action.id, "2026-09-27", false).unwrap();
+        assert!(!vault.list_actions("2026-09-27").unwrap()[0].completed);
+        assert_eq!(vault.insights("2026-09-27", 7).unwrap().action_count, 0);
+        assert!(vault.set_action_completion(&action.id, "2026-09-27", true).is_err());
+        vault.save_goal(Some(goal.id.clone()), "goal".into(), "active".into()).unwrap();
+        vault.save_action(Some(action.id.clone()), goal.id.clone(), "action".into(), false).unwrap();
+        assert!(vault.set_action_completion(&action.id, "2026-09-27", true).is_err());
+        vault.save_goal(Some(goal.id), "goal".into(), "archived".into()).unwrap();
+        assert!(vault.set_action_completion(&action.id, "2026-09-27", true).is_err());
+    }
+
+    #[test]
     fn saved_sos_allows_missing_scores_and_rejects_invalid_outcome() {
         let root = tempfile::tempdir().unwrap();
         let mut vault = VaultService::new(root.path().join("vault"));
