@@ -11,6 +11,7 @@ import SavedSos from '../features/sos/SavedSos';
 import Journal from '../features/journal/Journal';
 import Insights from '../features/insights/Insights';
 import { idleExpired } from './idle';
+import { useCalendarDay } from './useCalendarDay';
 
 const navigation = [
   ['today', '今日', '◒'], ['records', '记录', '▤'], ['sos', 'SOS', '◉'],
@@ -182,6 +183,7 @@ type ShellProps = {
 
 export function Shell({ status, theme, setTheme, onLock, onStatus }: ShellProps) {
   const navigate = useNavigate();
+  const day = useCalendarDay();
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><span className="brandmark" aria-hidden="true" /><span className="brand-label">净界</span></div>
@@ -195,14 +197,14 @@ export function Shell({ status, theme, setTheme, onLock, onStatus }: ShellProps)
       </div>
     </aside>
     <main className="main-area">
-      <header className="topbar"><span>净界 / 私密空间</span><div><span className="top-date">{new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(new Date())}</span><button className="button small-button" onClick={onLock}>立即锁定</button></div></header>
+      <header className="topbar"><span>净界 / 私密空间</span><div><span className="top-date">{day.shortLabel}</span><button className="button small-button" onClick={onLock}>立即锁定</button></div></header>
       <div className="content">
         <Routes>
-          <Route path="/today" element={<Today onSos={() => navigate('/sos')} onRecord={() => navigate('/records?new=1')} onPlan={() => navigate('/plan')} />} />
+          <Route path="/today" element={<Today key={day.key} day={day} onSos={() => navigate('/sos')} onRecord={() => navigate('/records?new=1')} onPlan={() => navigate('/plan')} />} />
           <Route path="/sos" element={<SavedSos onLeave={() => navigate('/today')} />} />
           <Route path="/records" element={<Records />} />
-          <Route path="/plan" element={<Plan />} />
-          <Route path="/insights" element={<Insights />} />
+          <Route path="/plan" element={<Plan key={day.key} day={day} />} />
+          <Route path="/insights" element={<Insights key={day.key} day={day} />} />
           <Route path="/journal" element={<Journal />} />
           <Route path="/blocker" element={<ComingSoon title="降低访问的便利性。" detail="浏览器扩展属于 M2。Firefox 与 Chromium 均未连接，当前没有规则生效。" />} />
           <Route path="/settings" element={<Settings status={status} theme={theme} setTheme={setTheme} onStatus={onStatus} />} />
