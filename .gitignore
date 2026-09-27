@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.tsbuildinfo
+src-tauri/target/
+src-tauri/gen/
+.env*
+*.mgb
+*.db
+*.db-*
+vault.json

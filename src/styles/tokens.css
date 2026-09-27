@@ -1,0 +1,59 @@
+:root {
+  font-family: "Noto Sans CJK SC", "Microsoft YaHei", system-ui, sans-serif;
+  color-scheme: dark;
+  --bg: #101915;
+  --sidebar: #131d18;
+  --surface: #1a2720;
+  --surface-2: #23332a;
+  --text: #eff2e9;
+  --muted: #a9b8a9;
+  --line: #314137;
+  --accent: #add4b0;
+  --accent-text: #142318;
+  --warning: #dec38d;
+  --error: #f2b1a5;
+  --shadow: 0 24px 70px #050e0955;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f3f5ef;
+  --sidebar: #e8eee7;
+  --surface: #fffefa;
+  --surface-2: #eaf1e8;
+  --text: #233328;
+  --muted: #5e6e62;
+  --line: #d5dfd4;
+  --accent: #3c7950;
+  --accent-text: #ffffff;
+  --warning: #8c672a;
+  --error: #9b342a;
+  --shadow: 0 24px 70px #183a2222;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; min-height: 100%; }
+body { background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.55; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+button:disabled { opacity: .6; cursor: not-allowed; }
+:focus-visible { outline: 3px solid var(--warning); outline-offset: 3px; }
+a { color: inherit; }
+h1, h2, p { margin-top: 0; }
+h1, h2 { font-weight: 550; line-height: 1.25; }
+h2 { font-size: 18px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.kicker { color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+.page-title { font-size: clamp(28px, 3vw, 36px); margin: 9px 0; letter-spacing: -.035em; }
+.subtitle { color: var(--muted); margin-bottom: 30px; }
+.button { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); color: var(--text); padding: 9px 17px; font-weight: 550; }
+.button:hover:not(:disabled) { border-color: var(--accent); }
+.button.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-text); }
+.button.ghost { background: transparent; }
+.pill { display: inline-flex; border-radius: 30px; padding: 5px 10px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.field { display: block; margin: 18px 0; color: var(--text); font-weight: 500; }
+.field input, .field select { display: block; width: 100%; min-height: 44px; margin-top: 7px; padding: 10px 12px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+.field input::placeholder { color: var(--muted); opacity: .8; }
+.message { border: 1px solid var(--accent); border-radius: 10px; padding: 11px 14px; color: var(--text); margin: 18px 0 0; }
+.message.error { border-color: var(--error); color: var(--error); }

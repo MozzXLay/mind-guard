@@ -1,0 +1,30 @@
+[package]
+name = "mindguard"
+version = "0.1.0"
+description = "Offline private habit reflection desktop app"
+authors = ["MindGuard contributors"]
+edition = "2021"
+
+[lib]
+name = "mindguard_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+tauri = { version = "2.11", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+rusqlite = { version = "0.40", default-features = false, features = ["bundled-sqlcipher"] }
+argon2 = "0.6"
+chacha20poly1305 = "0.10"
+getrandom = "0.3"
+zeroize = "1.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+base64 = "0.22"
+
+[dev-dependencies]
+tempfile = "3"

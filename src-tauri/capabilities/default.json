@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Main local window with file selection for encrypted backup restore",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open"]
+}
